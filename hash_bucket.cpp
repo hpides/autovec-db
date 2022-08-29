@@ -130,7 +130,20 @@ struct naive_scalar_find {
 };
 
 struct autovec_scalar_find {
-  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) { return NO_MATCH; }
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    // TODO: This is not the solution we want yet, it's just a dummy WIP state.
+    alignas(16) std::array<bool, 16> matches{false};
+    for (size_t i = 0; i < NUM_ENTRIES; ++i) {
+      matches[i] = bucket.fingerprints[i] == fingerprint;
+    }
+
+    for (size_t i = 0; i < NUM_ENTRIES; ++i) {
+      if (matches[i] && bucket.entries[i].key == key) {
+        return bucket.entries[i].value;
+      }
+    }
+    return NO_MATCH;
+  }
 };
 
 struct vector_find {
