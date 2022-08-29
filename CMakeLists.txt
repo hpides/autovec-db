@@ -33,3 +33,4 @@ endfunction()
 
 
 add_benchmark(hash_bucket)
+add_benchmark(hashing)
