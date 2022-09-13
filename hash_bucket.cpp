@@ -82,6 +82,9 @@ struct neon_find {
     uint8x16_t fp_vector = vld1q_u8(fingerprints);
 
     // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
+    // TODO: change this back to:
+    //         uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
+    //       and use mask for byte 16
     uint8x16_t lookup_fp{
         fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint,
         fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, 0};
@@ -155,6 +158,7 @@ struct vector_find {
     vec8x16 fp_vector = *reinterpret_cast<vec8x16*>(fingerprints);
 
     // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
+    // TODO: change to 16 byte load + mask
     vec8x16 lookup_fp{
         fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint,
         fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, 0};
