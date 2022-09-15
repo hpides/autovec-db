@@ -23,8 +23,7 @@ struct alignas(512) AlignedArray {
 };
 
 // Constant taken from https://github.com/rurban/smhasher
-// constexpr static uint64_t MULTIPLY_CONSTANT = 0x75f17d6b3588f843ull;
-constexpr static uint64_t MULTIPLY_CONSTANT = 2;
+ constexpr static uint64_t MULTIPLY_CONSTANT = 0x75f17d6b3588f843ull;
 
 /** We assume a basic multiply-shift hash, based on the constants used in SMHasher and 27 Bits needed in the hash table.
  * We add this range to avoid the compiler optimizing the subtraction here. We perform a multiplication followed by a
