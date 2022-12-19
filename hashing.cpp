@@ -14,16 +14,13 @@
 //               This will impact if the compiler can unroll the loop or not.
 static constexpr uint64_t NUM_KEYS = 64;
 
-struct alignas(512) AlignedArray {
-  // We want to use an empty custom constructor here to avoid zeroing the array when creating an AlignedArray.
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init,modernize-use-equals-default)
-  AlignedArray(){};
+template <typename Type, size_t LENGTH, size_t ALIGN = 64>
+using BaseAlignedArray __attribute__((aligned(ALIGN))) = std::array<Type, LENGTH>;
 
-  std::array<uint64_t, NUM_KEYS> data;
-};
+using AlignedArray = BaseAlignedArray<uint64_t, NUM_KEYS>;
 
 // Constant taken from https://github.com/rurban/smhasher
- constexpr static uint64_t MULTIPLY_CONSTANT = 0x75f17d6b3588f843ull;
+constexpr static uint64_t MULTIPLY_CONSTANT = 0x75f17d6b3588f843ull;
 
 /** We assume a basic multiply-shift hash, based on the constants used in SMHasher and 27 Bits needed in the hash table.
  * We add this range to avoid the compiler optimizing the subtraction here. We perform a multiplication followed by a
@@ -41,18 +38,18 @@ void BM_hashing(benchmark::State& state) {
   AlignedArray keys_to_hash;
   AlignedArray check_keys;
   for (size_t i = 0; i < NUM_KEYS; ++i) {
-    keys_to_hash.data[i] = rng();
-    check_keys.data[i] = calculate_hash(keys_to_hash.data[i], shift);
+    keys_to_hash[i] = rng();
+    check_keys[i] = calculate_hash(keys_to_hash[i], shift);
   }
 
   AlignedArray hashes{};
   // Fill with 0s here as we will most likely reuse the same memory after each run, and we use uninitialized array to
   // avoid zeroing explicitly in each iteration.
-  std::fill(hashes.data.begin(), hashes.data.end(), 0);
+  std::fill(hashes.begin(), hashes.end(), 0);
 
   // Do one sanity check that we get the correct results.
   hashes = hash_fn(keys_to_hash, shift);
-  if (hashes.data != check_keys.data) {
+  if (hashes != check_keys) {
     throw std::runtime_error{"Bad hash calculation"};
   }
 
@@ -68,9 +65,7 @@ void BM_hashing(benchmark::State& state) {
 /** Doing this in NEON is not very useful, as we can neither do a vector multiply nor a variable right shift. */
 struct neon_hash {
   AlignedArray operator()(const AlignedArray& keys_to_hash, uint64_t shift) {
-    struct alignas(alignof(AlignedArray)) VecArray {
-      std::array<uint64x2_t, NUM_KEYS / 2> data;
-    };
+    using VecArray __attribute__((aligned(alignof(AlignedArray)))) = std::array<uint64x2_t, NUM_KEYS / 2>;
 
     AlignedArray actual_hashes;
     const auto& vec_keys = reinterpret_cast<const VecArray&>(keys_to_hash);
@@ -83,10 +78,10 @@ struct neon_hash {
 
     for (size_t i = 0; i < NUM_KEYS / 2; ++i) {
       const size_t offset = i * 2;
-      alignas(16) std::array<uint64_t, 2> keys{keys_to_hash.data[offset] * MULTIPLY_CONSTANT,
-                                               keys_to_hash.data[offset + 1] * MULTIPLY_CONSTANT};
+      alignas(16) std::array<uint64_t, 2> keys{keys_to_hash[offset] * MULTIPLY_CONSTANT,
+                                               keys_to_hash[offset + 1] * MULTIPLY_CONSTANT};
       uint64x2_t multiplied_keys = vld1q_u64(keys.data());
-      hashes.data[i] = vshlq_u64(multiplied_keys, shift_value);
+      hashes[i] = vshlq_u64(multiplied_keys, shift_value);
     }
 
     return actual_hashes;
@@ -113,7 +108,7 @@ struct naive_scalar_hash {
   AlignedArray operator()(const AlignedArray& keys_to_hash, uint64_t shift) {
     AlignedArray hashes;
     for (size_t i = 0; i < NUM_KEYS; ++i) {
-      hashes.data[i] = calculate_hash(keys_to_hash.data[i], shift);
+      hashes[i] = calculate_hash(keys_to_hash[i], shift);
     }
     return hashes;
   }
@@ -123,12 +118,12 @@ struct autovec_scalar_hash {
   AlignedArray operator()(const AlignedArray& keys_to_hash, uint64_t shift) {
     AlignedArray hashes;
     for (size_t i = 0; i < NUM_KEYS; ++i) {
-      hashes.data[i] = keys_to_hash.data[i] * MULTIPLY_CONSTANT;
+      hashes[i] = keys_to_hash[i] * MULTIPLY_CONSTANT;
     }
 
     uint64_t actual_shift = 64 - shift;
     for (size_t i = 0; i < NUM_KEYS; ++i) {
-      hashes.data[i] = hashes.data[i] >> actual_shift;
+      hashes[i] = hashes[i] >> actual_shift;
     }
 
     return hashes;
@@ -143,9 +138,7 @@ struct vector_hash {
   using VecT __attribute__((vector_size(VECTOR_BYTES))) = uint64_t;
   static_assert(sizeof(VecT) == VECTOR_BYTES);
 
-  struct alignas(alignof(AlignedArray)) VecArray {
-    std::array<VecT, NUM_KEYS / NUM_VECTOR_ELEMENTS> data;
-  };
+  using VecArray __attribute__((aligned(alignof(AlignedArray)))) = std::array<VecT, NUM_KEYS / NUM_VECTOR_ELEMENTS>;
 
   AlignedArray operator()(const AlignedArray& keys_to_hash, uint64_t shift) {
     const auto& vec_keys = reinterpret_cast<const VecArray&>(keys_to_hash);
@@ -155,7 +148,7 @@ struct vector_hash {
 
     uint64_t actual_shift = 64 - shift;
     for (size_t i = 0; i < NUM_KEYS / NUM_VECTOR_ELEMENTS; ++i) {
-      hashes.data[i] = (vec_keys.data[i] * MULTIPLY_CONSTANT) >> actual_shift;
+      hashes[i] = (vec_keys[i] * MULTIPLY_CONSTANT) >> actual_shift;
     }
 
     return actual_hashes;

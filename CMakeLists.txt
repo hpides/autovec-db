@@ -31,6 +31,6 @@ function(add_benchmark bm_name)
   target_link_libraries(${bm_name} PRIVATE autovec benchmark)
 endfunction()
 
-
+add_benchmark(compressed_scan)
 add_benchmark(hash_bucket)
 add_benchmark(hashing)

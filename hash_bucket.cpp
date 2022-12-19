@@ -26,7 +26,7 @@ template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
   FindFn find_fn{};
   HashBucket bucket{};
-  bucket.fingerprints = {3, 8, 12, 10, 11, 6, NUM_ENTRIES, 1, 5, 14, 13, 2, 9, 4, 7};
+  bucket.fingerprints = {3, 8, 12, 10, 11, 6, 15, 1, 5, 14, 13, 2, 9, 4, 7};
   bucket.entries = {Entry{30, 30},   Entry{80, 80},   Entry{120, 120}, Entry{100, 100}, Entry{110, 110},
                     Entry{60, 60},   Entry{150, 150}, Entry{10, 10},   Entry{50, 50},   Entry{140, 140},
                     Entry{130, 130}, Entry{20, 20},   Entry{90, 90},   Entry{40, 40},   Entry{70, 70}};
