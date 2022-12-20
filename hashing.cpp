@@ -169,7 +169,7 @@ BENCHMARK(BM_hashing<autovec_scalar_hash>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<64>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<128>>)->BM_ARGS;
 
-// TODO: figure out why these or why they are so fast!
+// TODO: figure out why these are wrong or why they are so fast!
 BENCHMARK(BM_hashing<vector_hash<256>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<512>>)->BM_ARGS;
 
