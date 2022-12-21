@@ -6,7 +6,7 @@
 
 #include "benchmark/benchmark.h"
 
-#define BM_ARGS UseRealTime()->Repetitions(5)->Arg(27)
+#define BM_ARGS Repetitions(1)->Arg(27)
 
 // TODO(lawben): Check which number here makes sense. We need: #keys / (#vector-lanes / 8B key) registers.
 //                 --> 128 keys = 16 zmm | 32 ymm | 64 xmm registers
@@ -65,10 +65,9 @@ void BM_hashing(benchmark::State& state) {
 /** Doing this in NEON is not very useful, as we can neither do a vector multiply nor a variable right shift. */
 struct neon_hash {
   AlignedArray operator()(const AlignedArray& keys_to_hash, uint64_t shift) {
-    using VecArray __attribute__((aligned(alignof(AlignedArray)))) = std::array<uint64x2_t, NUM_KEYS / 2>;
+    using VecArray = std::array<uint64x2_t, NUM_KEYS / 2>;
 
     AlignedArray actual_hashes;
-    const auto& vec_keys = reinterpret_cast<const VecArray&>(keys_to_hash);
     auto& hashes = reinterpret_cast<VecArray&>(actual_hashes);
 
     // We need this "hack" here, as NEON requires the right shift value to be a compile-time constant. So we shift left
@@ -142,10 +141,10 @@ struct vector_hash {
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(uint64_t);
 
-  using VecT = __attribute__((vector_size(VECTOR_BYTES))) uint64_t;
+  using VecT __attribute__((vector_size(VECTOR_BYTES))) = uint64_t;
   static_assert(sizeof(VecT) == VECTOR_BYTES);
 
-  using VecArray = __attribute__((aligned(alignof(AlignedArray)))) std::array<VecT, NUM_KEYS / NUM_VECTOR_ELEMENTS>;
+  using VecArray = std::array<VecT, NUM_KEYS / NUM_VECTOR_ELEMENTS>;
 
   AlignedArray operator()(const AlignedArray& keys_to_hash, uint64_t shift) {
     const auto& vec_keys = reinterpret_cast<const VecArray&>(keys_to_hash);

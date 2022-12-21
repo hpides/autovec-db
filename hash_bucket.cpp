@@ -21,7 +21,7 @@ struct alignas(256) HashBucket {
 
 static_assert(sizeof(HashBucket) == 256, "Hash Bucket should be 256 Byte for this benchmark");
 
-#define BM_ARGS UseRealTime()->Repetitions(10)
+#define BM_ARGS Repetitions(1)
 
 template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {

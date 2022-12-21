@@ -11,13 +11,13 @@
 #endif
 
 #ifdef NDEBUG
-#define DEBUG_DO(block) (void) 0;
+#define DEBUG_DO(block) (void) 0
 #else
 #define DEBUG_DO(block) do { block } while(0)
 #endif
 
 
-#if(__AVX512VBMI2__ == 1)
+#if(defined(__AVX512VBMI2__))
 #define AVX512_AVAILABLE
 #endif
 

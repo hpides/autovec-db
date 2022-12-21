@@ -18,24 +18,23 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -D_GLIBCXX_ASSERTIONS" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g3 -DNDEBUG" CACHE STRING "" FORCE)
 
-if (NOT CMAKE_BUILD_TYPE MATCHES Release)
-  message(WARNING "Building benchmarks in ${CMAKE_BUILD_TYPE}. This may impact performance!")
-endif()
-
 set(OVERRIDE_ARCHITECTURE_FLAGS "" CACHE STRING "If not empty, the value is passed to the compiler instead of march/mcpu=native.")
 
 if(OVERRIDE_ARCHITECTURE_FLAGS STREQUAL "")
   EXECUTE_PROCESS(COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE CPU_ARCHITECTURE)
   if (${CPU_ARCHITECTURE} STREQUAL "x86_64")
     add_compile_options("-march=native")
-  elseif (${CPU_ARCHITECTURE} STREQUAL "aarch64")
+  elseif (${CPU_ARCHITECTURE} STREQUAL "aarch64" OR ${CPU_ARCHITECTURE} STREQUAL "arm64")
     add_compile_options("-mcpu=native")
   else ()
-    message(STATUS "Unknown platform ${CPU_ARCHITECTURE}. Not using any native flags.")
+    message(WARNING "Unknown platform ${CPU_ARCHITECTURE}. Not using any native flags.")
   endif ()
 else()
   add_compile_options("${OVERRIDE_ARCHITECTURE_FLAGS}")
 endif()
+
+# We need this to to reinterpret_casts of GCC vector types.
+add_compile_options(-flax-vector-conversions)
 
 ##################### Google Benchmark ####################
 include(FetchContent)
@@ -61,13 +60,10 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   list(APPEND WARNING_OPTIONS "-Wshadow-all" "-Wno-shadow-field-in-constructor")
 endif()
 
-
 ##### COMPILE COMMANDS #####
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-
 ##### INTERFACE TARGET FOR INCLUDE PATHS #####
-
 add_library(autovec_includes INTERFACE)
 target_include_directories(autovec_includes INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
