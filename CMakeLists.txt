@@ -37,16 +37,9 @@ else()
   add_compile_options("${OVERRIDE_ARCHITECTURE_FLAGS}")
 endif()
 
-
-##### COMPILE COMMANDS #####
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-add_library(autovec INTERFACE)
-target_include_directories(autovec INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
-
+##################### Google Benchmark ####################
 include(FetchContent)
 
-##################### Google Benchmark ####################
 FetchContent_Declare(
     google_benchmark
     GIT_REPOSITORY https://github.com/google/benchmark.git
@@ -54,12 +47,35 @@ FetchContent_Declare(
 )
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing google benchmark's tests" FORCE)
 FetchContent_MakeAvailable(google_benchmark)
+# Mark google benchmark headers as system headers to avoid applying our stricter compile options to them.
+get_property(_google_benchmark_include_dirs TARGET benchmark PROPERTY INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(benchmark SYSTEM INTERFACE ${_google_benchmark_include_dirs})
 
+
+##### COMPILER WARNINGS #####
+list(APPEND WARNING_OPTIONS "-Wall" "-Wextra" "-Werror" "-Wpedantic" "-Wextra-semi" "-Wnon-virtual-dtor" "-Wunused" "-Wzero-as-null-pointer-constant")
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  # Additional checks not supported by GCC -- some are supported on GCC, but not ignorable / not filterable
+  list(APPEND WARNING_OPTIONS "-Wdocumentation" "-Wconditional-uninitialized" "-Wundef" "-Wunused-exception-parameter" "-Wunused-member-function")
+  list(APPEND WARNING_OPTIONS "-Wno-gnu-zero-variadic-macro-arguments") # legal in c++20
+  list(APPEND WARNING_OPTIONS "-Wshadow-all" "-Wno-shadow-field-in-constructor")
+endif()
+
+
+##### COMPILE COMMANDS #####
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+
+##### INTERFACE TARGET FOR INCLUDE PATHS #####
+
+add_library(autovec_includes INTERFACE)
+target_include_directories(autovec_includes INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 ##################### Our Benchmarks ####################
 function(add_benchmark bm_name)
   add_executable(${bm_name} ${bm_name}.cpp)
-  target_link_libraries(${bm_name} PRIVATE autovec benchmark)
+  target_link_libraries(${bm_name} PRIVATE autovec_includes benchmark)
+  target_compile_options(${bm_name} PRIVATE "${WARNING_OPTIONS}")
 endfunction()
 
 add_benchmark(compressed_scan)

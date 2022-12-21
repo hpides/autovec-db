@@ -1,4 +1,5 @@
 #include <array>
+#include <bitset>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -13,8 +14,6 @@
 
 static constexpr uint64_t NUM_TUPLES = 48 * 1024 * 1024;  // ~50 million (and divisible by 12 and 16)
 static constexpr size_t COMPRESS_BITS = 9;
-
-static_assert(NUM_KEYS % 16 == 0, "NUM_KEYS must be a multiple of 16");
 
 namespace {
 
@@ -65,18 +64,6 @@ void print_bits_right_to_left(void* data, size_t num_bytes, std::ostream& os) {
   auto* bytes = reinterpret_cast<uint8_t*>(data);
   for (size_t offset = num_bytes; offset > 0; --offset) {
     os << std::bitset<8>(bytes[offset - 1]) << ' ';
-  }
-  os << std::endl;
-}
-
-void print_ints(void* data, size_t num_ints, std::ostream& os) {
-  if (reinterpret_cast<uint64_t>(data) % sizeof(uint32_t) != 0) {
-    throw std::runtime_error{"Cannot print unaligned integers!"};
-  }
-
-  auto* ints = reinterpret_cast<uint32_t*>(data);
-  for (size_t offset = 0; offset < num_ints; ++offset) {
-    os << ints[offset] << ' ';
   }
   os << std::endl;
 }
@@ -331,7 +318,12 @@ struct x86_512_scan {
     }
   }
 
-  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t bits_needed) {}
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t bits_needed) {
+    // TODO
+    (void)input;
+    (void)output;
+    (void)bits_needed;
+  }
 };
 BENCHMARK(BM_scanning<x86_512_scan>)->BM_ARGS;
 #endif

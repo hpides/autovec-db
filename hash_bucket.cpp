@@ -4,7 +4,7 @@
 #include <numeric>
 #include <random>
 
-#include "benchmark/benchmark.h"
+#include <benchmark/benchmark.h>
 
 static constexpr uint64_t NUM_ENTRIES = 15;
 static constexpr uint64_t NO_MATCH = std::numeric_limits<uint64_t>::max();
@@ -21,7 +21,7 @@ struct alignas(256) HashBucket {
 
 static_assert(sizeof(HashBucket) == 256, "Hash Bucket should be 256 Byte for this benchmark");
 
-#define BM_ARGS UseRealTime()->Repetitions(10);
+#define BM_ARGS UseRealTime()->Repetitions(10)
 
 template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
@@ -70,7 +70,7 @@ uint64_t find_key_match(HashBucket& bucket, uint64_t key, uint64_t matches, size
     matches &= ~(255ul << trailing_zeros);
   }
   return NO_MATCH;
-};
+}
 
 #if defined(__aarch64__)
 #include <arm_neon.h>
@@ -115,6 +115,9 @@ struct x86_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
     // TODO
     uint8_t* fingerprints = bucket.fingerprints.data();
+    (void)fingerprints;
+    (void)key;
+    (void)fingerprint;
     return 0;
   }
 };
