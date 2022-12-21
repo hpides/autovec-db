@@ -11,8 +11,8 @@
 
 #define BM_ARGS Repetitions(1)->Unit(benchmark::kMillisecond)
 
-static constexpr uint64_t NUM_TUPLES = 48 * 1024 * 1024;  // ~50 million (and divisible by 12 and 16)
-// static constexpr uint64_t NUM_TUPLES = 48;
+// static constexpr uint64_t NUM_TUPLES = 48 * 1024 * 1024;  // ~50 million (and divisible by 12 and 16)
+static constexpr uint64_t NUM_TUPLES = 48 * 10;
 static constexpr size_t COMPRESS_BITS = 9;
 
 namespace {
@@ -60,7 +60,7 @@ CompressedColumn compress_input(const std::vector<uint32_t>& input) {
   return compressed_data;
 }
 
-void print_bits_right_to_left(void* data, size_t num_bytes, std::ostream& os) {
+[[maybe_unused]] void print_bits_right_to_left(void* data, size_t num_bytes, std::ostream& os) {
   auto* bytes = reinterpret_cast<uint8_t*>(data);
   for (size_t offset = num_bytes; offset > 0; --offset) {
     os << std::bitset<8>(bytes[offset - 1]) << ' ';
@@ -103,6 +103,7 @@ void BM_scanning(benchmark::State& state) {
   }
 
   for (auto _ : state) {
+    benchmark::DoNotOptimize(compressed_column.data);
     scan_fn(compressed_column.data, decompressed_column.data, NUM_TUPLES);
     benchmark::DoNotOptimize(decompressed_column.data);
   }
@@ -412,7 +413,11 @@ struct vector_scan {
   template <typename T>
   using VecT __attribute__((vector_size(16))) = T;
 
+  template <typename VecT, size_t ALIGN>
+  using UnalignedVecT __attribute__((aligned(ALIGN))) = VecT;
+
   using VecU8x16 = VecT<uint8_t>;
+  using UnalignedVecU8x16 = UnalignedVecT<VecU8x16, 8>;
   using VecU32x4 = VecT<uint32_t>;
 
   static constexpr VecU8x16 SHUFFLE_MASKS[3] = {
@@ -440,7 +445,7 @@ struct vector_scan {
         case 1: return __builtin_shufflevector(batch_lane, batch_lane, 4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10);
         case 2: return __builtin_shufflevector(batch_lane, batch_lane, 8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14);
         default: __builtin_unreachable();
-        // clang-format on
+          // clang-format on
       }
 #endif
     };
@@ -479,7 +484,7 @@ struct vector_scan {
       const size_t offset = (batch * BITS_PER_BATCH) / 8;
       const auto* pos = compressed_data + offset;
 
-      auto batch_lane = *reinterpret_cast<const VecU8x16*>(pos);
+      auto batch_lane = *reinterpret_cast<const UnalignedVecU8x16*>(pos);
       decompress_iteration<0>(batch_lane, callback, dangling_bits);
       decompress_iteration<1>(batch_lane, callback, dangling_bits);
       decompress_iteration<2>(batch_lane, callback, dangling_bits);
@@ -496,8 +501,8 @@ struct vector_scan {
   }
 };
 
-//BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
-//BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
+// BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
+// BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan>)->BM_ARGS;
 
 BENCHMARK_MAIN();

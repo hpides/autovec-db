@@ -13,7 +13,8 @@
 #ifdef NDEBUG
 #define DEBUG_DO(block) (void) 0
 #else
-#define DEBUG_DO(block) do { block } while(0)
+//#define DEBUG_DO(block) do { block } while(0)
+#define DEBUG_DO(block) (void) 0
 #endif
 
 

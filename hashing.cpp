@@ -54,6 +54,7 @@ void BM_hashing(benchmark::State& state) {
   }
 
   for (auto _ : state) {
+    benchmark::DoNotOptimize(keys_to_hash.data());
     hashes = hash_fn(keys_to_hash, shift);
     benchmark::DoNotOptimize(hashes);
   }

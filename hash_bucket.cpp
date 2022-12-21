@@ -14,9 +14,9 @@ struct Entry {
   uint64_t value;
 };
 
-struct alignas(256) HashBucket {
-  alignas(256) std::array<uint8_t, NUM_ENTRIES> fingerprints;
-  alignas(16) std::array<Entry, NUM_ENTRIES> entries;
+struct HashBucket {
+  alignas(16) std::array<uint8_t, NUM_ENTRIES> fingerprints;
+  std::array<Entry, NUM_ENTRIES> entries;
 };
 
 static_assert(sizeof(HashBucket) == 256, "Hash Bucket should be 256 Byte for this benchmark");
@@ -45,8 +45,13 @@ void BM_hash_bucket_get(benchmark::State& state) {
 
   for (auto _ : state) {
     for (size_t i = 0; i < NUM_ENTRIES; ++i) {
+      benchmark::DoNotOptimize(&bucket);
+      benchmark::DoNotOptimize(lookup_keys.data());
+      benchmark::DoNotOptimize(lookup_fps.data());
+
       uint64_t value = find_fn(bucket, lookup_keys[i], lookup_fps[i]);
       assert(value != NO_MATCH);
+
       benchmark::DoNotOptimize(value);
     }
   }
