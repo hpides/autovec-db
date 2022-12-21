@@ -3,14 +3,15 @@
 #include <iostream>
 #include <numeric>
 #include <random>
+#include <span>
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
 
-#define BM_ARGS UseRealTime()->Repetitions(1);
+#define BM_ARGS UseRealTime()->Repetitions(10)->Unit(benchmark::kMillisecond)  //->Iterations(1);
 
 // TODO: make large but keep at multiple of 16
-static constexpr uint64_t NUM_KEYS = 1024;
+static constexpr uint64_t NUM_TUPLES = 16 * 1024 * 1024;  // = 2^24
 static constexpr size_t COMPRESS_BITS = 9;
 
 namespace {
@@ -21,12 +22,13 @@ struct AlignedData {
     if (data == nullptr) {
       throw std::runtime_error{"Could not allocate memory. " + std::string{std::strerror(errno)}};
     }
+    std::memset(data, 0, num_entries * sizeof(T));
   }
   T* data;
 };
 
-using CompressedColumn = AlignedData<uint64_t, 512>;
-using DecompressedColumn = AlignedData<uint32_t, 512>;
+using CompressedColumn = AlignedData<uint64_t, 64>;
+using DecompressedColumn = AlignedData<uint32_t, 64>;
 
 CompressedColumn compress_input(const std::vector<uint32_t>& input) {
   constexpr uint64_t U64_BITS = 64;
@@ -62,32 +64,30 @@ CompressedColumn compress_input(const std::vector<uint32_t>& input) {
 template <typename ScanFn>
 void BM_scanning(benchmark::State& state) {
   ScanFn scan_fn{};
-  uint64_t bits_needed = COMPRESS_BITS;  // hard-coded for now. otherwise: state.range(0);
 
   // Seed rng for same benchmark runs.
-  std::mt19937_64 rng{82323457236434673ul};
+  std::mt19937 rng{13131313};
 
-  std::vector<uint32_t> tuples(NUM_KEYS);
-  for (size_t i = 0; i < NUM_KEYS; ++i) {
-    // TODO: make random
-//    tuples[i] = rng() % (1 << bits_needed);
-    tuples[i] = 42;
+  std::vector<uint32_t> tuples(NUM_TUPLES);
+  for (size_t i = 0; i < NUM_TUPLES; ++i) {
+    tuples[i] = rng() & ((1 << COMPRESS_BITS) - 1);
   }
 
   CompressedColumn compressed_column = compress_input(tuples);
+  DecompressedColumn decompressed_column{NUM_TUPLES};
 
-  // Do one pass to test that the code is correct
+  // Do one pass to test that the code is correct.
   {
-    DecompressedColumn decompressed_column{NUM_KEYS};
-    scan_fn(compressed_column.data, decompressed_column.data, NUM_KEYS);
-    if (std::memcmp(decompressed_column.data, tuples.data(), NUM_KEYS * sizeof(uint32_t)) != 0) {
-      throw std::runtime_error{"Wrong decompression result."};
+    scan_fn(compressed_column.data, decompressed_column.data, NUM_TUPLES);
+    for (size_t i = 0; i < NUM_TUPLES; ++i) {
+      if (decompressed_column.data[i] != tuples[i]) {
+        throw std::runtime_error{"Wrong decompression result at [" + std::to_string(i) + "]"};
+      }
     }
   }
 
-  DecompressedColumn decompressed_column{NUM_KEYS};
   for (auto _ : state) {
-    scan_fn(compressed_column.data, decompressed_column.data, NUM_KEYS);
+    scan_fn(compressed_column.data, decompressed_column.data, NUM_TUPLES);
     benchmark::DoNotOptimize(decompressed_column.data);
   }
 }
@@ -169,7 +169,7 @@ struct neon_scan {
   }
 };
 
-BENCHMARK(BM_scanning<neon_scan>)->BM_ARGS;
+// BENCHMARK(BM_scanning<neon_scan>)->BM_ARGS;
 
 #endif
 
@@ -311,23 +311,27 @@ BENCHMARK(BM_scaning<x86_512_scan>)->BM_ARGS;
 struct naive_scalar_scan {
   void operator()(const uint64_t* input, uint32_t* output, size_t num_tuples) {
     constexpr size_t U64_BITS = sizeof(uint64_t) * 8;
-    uint64_t bits_left = 0;
     constexpr uint64_t MASK = (1 << COMPRESS_BITS) - 1;
+    uint64_t bits_left = U64_BITS;
 
     size_t block_idx = 0;
 
-    for (size_t number_index = 0; number_index < num_tuples; ++number_index) {
-      output[number_index] = (input[block_idx] >> bits_left) & MASK;
+    for (size_t i = 0; i < num_tuples; ++i) {
+      const size_t bits_for_current_value = U64_BITS - bits_left;
+      output[i] |= (input[block_idx] >> bits_for_current_value) & MASK;
 
-      // We have a few most significant bits left over in the next block
-      if (bits_left > U64_BITS) {
-        output[number_index] |= input[++block_idx] << (U64_BITS - bits_left) & MASK;
+      // Did not get all bits for value, check next block to get them.
+      if (bits_left < COMPRESS_BITS) {
+        // Shift remaining bits to correct position for bit-OR.
+        output[i] |= (input[++block_idx] << bits_left) & MASK;
+        bits_left += U64_BITS;
       }
 
-      bits_left += COMPRESS_BITS;
-      if (bits_left == U64_BITS) {
+      bits_left -= COMPRESS_BITS;
+
+      if (bits_left == 0) {
         block_idx++;
-        bits_left = 0;
+        bits_left = U64_BITS;
       }
     }
   }
@@ -336,23 +340,27 @@ struct naive_scalar_scan {
 struct autovec_scalar_scan {
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     constexpr size_t U64_BITS = sizeof(uint64_t) * 8;
-    uint64_t bits_left = 0;
     constexpr uint64_t MASK = (1 << COMPRESS_BITS) - 1;
+    uint64_t bits_left = U64_BITS;
 
     size_t block_idx = 0;
 
-    for (size_t number_index = 0; number_index < num_tuples; ++number_index) {
-      output[number_index] = (input[block_idx] >> bits_left) & MASK;
+    for (size_t i = 0; i < num_tuples; ++i) {
+      const size_t bits_for_current_value = U64_BITS - bits_left;
+      output[i] |= (input[block_idx] >> bits_for_current_value) & MASK;
 
-      // We have a few most significant bits left over in the next block
-      if (bits_left > U64_BITS) {
-        output[number_index] |= input[++block_idx] << (U64_BITS - bits_left) & MASK;
+      // Did not get all bits for value, check next block to get them.
+      if (bits_left < COMPRESS_BITS) {
+        // Shift remaining bits to correct position for bit-OR.
+        output[i] |= (input[++block_idx] << bits_left) & MASK;
+        bits_left += U64_BITS;
       }
 
-      bits_left += COMPRESS_BITS;
-      if (bits_left == U64_BITS) {
+      bits_left -= COMPRESS_BITS;
+
+      if (bits_left == 0) {
         block_idx++;
-        bits_left = 0;
+        bits_left = U64_BITS;
       }
     }
   }
@@ -443,6 +451,6 @@ struct vector_scan {
 
 BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
 BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
-BENCHMARK(BM_scanning<vector_scan>)->BM_ARGS;
+// BENCHMARK(BM_scanning<vector_scan>)->BM_ARGS;
 
 BENCHMARK_MAIN();
