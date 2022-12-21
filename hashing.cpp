@@ -95,13 +95,18 @@ struct x86_128_hash {
     return AlignedArray{};
   }
 };
+BENCHMARK(BM_hashing<x86_128_hash>)->BM_ARGS;
 
+#if defined(AVX512_AVAILABLE)
 struct x86_512_hash {
   AlignedArray operator()(const AlignedArray& keys_to_hash, uint64_t shift) {
     // TODO
     return AlignedArray{};
   }
 };
+BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
+#endif
+
 #endif
 
 struct naive_scalar_hash {
@@ -157,11 +162,6 @@ struct vector_hash {
 
 #if defined(__aarch64__)
 BENCHMARK(BM_hashing<neon_hash>)->BM_ARGS;
-#endif
-
-#if defined(__x86_64__)
-BENCHMARK(BM_hashing<x86_128_hash>)->BM_ARGS;
-BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
 #endif
 
 BENCHMARK(BM_hashing<naive_scalar_hash>)->BM_ARGS;

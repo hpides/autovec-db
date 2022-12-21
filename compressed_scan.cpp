@@ -1,5 +1,6 @@
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <numeric>
 #include <random>
@@ -12,6 +13,8 @@
 
 static constexpr uint64_t NUM_TUPLES = 48 * 1024 * 1024;  // ~50 million (and divisible by 12 and 16)
 static constexpr size_t COMPRESS_BITS = 9;
+
+static_assert(NUM_KEYS % 16 == 0, "NUM_KEYS must be a multiple of 16");
 
 namespace {
 
@@ -263,6 +266,7 @@ struct x86_128_scan {
   }
 };
 
+#if defined(AVX512_AVAILABLE)
 struct x86_512_scan {
   static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
   static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
@@ -329,9 +333,10 @@ struct x86_512_scan {
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t bits_needed) {}
 };
+BENCHMARK(BM_scanning<x86_512_scan>)->BM_ARGS;
+#endif
 
-BENCHMARK(BM_scaning<x86_128_scan>)->BM_ARGS;
-BENCHMARK(BM_scaning<x86_512_scan>)->BM_ARGS;
+BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
 #endif
 
 struct naive_scalar_scan {

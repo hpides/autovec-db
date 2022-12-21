@@ -1,4 +1,5 @@
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <numeric>
 #include <random>
@@ -55,7 +56,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
 uint64_t find_key_match(HashBucket& bucket, uint64_t key, uint64_t matches, size_t entry_offset) {
   while (matches != 0) {
     // The comparison returns 00000000 for a mismatch, so we need to divide by 8 to get the actual number of 0's.
-    uint32_t trailing_zeros = __builtin_ctzl(matches);
+    uint32_t trailing_zeros = std::countr_zero(matches);
     uint16_t match_pos = entry_offset + (trailing_zeros / 8);
 
     // We give this a likely hint, as we expect the number of fingerprint collisions to be low. So on average, we
@@ -118,7 +119,7 @@ struct x86_find {
   }
 };
 
-BENCHMARK(BM_hash_bucket_get<x86Find>)->BM_ARGS;
+BENCHMARK(BM_hash_bucket_get<x86_find>)->BM_ARGS;
 #endif
 
 struct naive_scalar_find {

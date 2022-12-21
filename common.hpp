@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
+#include <cstddef>
 
 #if (defined(__GNUC__) && !defined(__clang__))
 #define GCC_COMPILER 1
@@ -14,6 +16,10 @@
 #define DEBUG_DO(block) do { block } while(0)
 #endif
 
+
+#if(__AVX512VBMI2__ == 1)
+#define AVX512_AVAILABLE
+#endif
 
 template <typename DataT, size_t NUM_ENTRIES, size_t ALIGN>
 struct alignas(ALIGN) AlignedArray {
