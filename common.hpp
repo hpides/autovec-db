@@ -8,6 +8,13 @@
 #define GCC_COMPILER 0
 #endif
 
+#ifdef NDEBUG
+#define DEBUG_DO(block) (void) 0;
+#else
+#define DEBUG_DO(block) do { block } while(0)
+#endif
+
+
 template <typename DataT, size_t NUM_ENTRIES, size_t ALIGN>
 struct alignas(ALIGN) AlignedArray {
   // We want to use an empty custom constructor here to avoid zeroing the array when creating an AlignedArray.

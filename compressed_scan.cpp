@@ -10,8 +10,7 @@
 
 #define BM_ARGS UseRealTime()->Repetitions(10)->Unit(benchmark::kMillisecond)  //->Iterations(1);
 
-// TODO: make large but keep at multiple of 16
-static constexpr uint64_t NUM_TUPLES = 16 * 1024 * 1024;  // = 2^24
+static constexpr uint64_t NUM_TUPLES = 48 * 1024 * 1024;  // ~50 million (and divisible by 12 and 16)
 static constexpr size_t COMPRESS_BITS = 9;
 
 namespace {
@@ -59,6 +58,32 @@ CompressedColumn compress_input(const std::vector<uint32_t>& input) {
   return compressed_data;
 }
 
+void print_bits_right_to_left(void* data, size_t num_bytes, std::ostream& os) {
+  auto* bytes = reinterpret_cast<uint8_t*>(data);
+  for (size_t offset = num_bytes; offset > 0; --offset) {
+    os << std::bitset<8>(bytes[offset - 1]) << ' ';
+  }
+  os << std::endl;
+}
+
+void print_ints(void* data, size_t num_ints, std::ostream& os) {
+  if (reinterpret_cast<uint64_t>(data) % sizeof(uint32_t) != 0) {
+    throw std::runtime_error{"Cannot print unaligned integers!"};
+  }
+
+  auto* ints = reinterpret_cast<uint32_t*>(data);
+  for (size_t offset = 0; offset < num_ints; ++offset) {
+    os << ints[offset] << ' ';
+  }
+  os << std::endl;
+}
+
+template <typename SimdLane>
+void print_lane(SimdLane* lane, std::ostream& os = std::cout) {
+  constexpr size_t num_bytes = sizeof(SimdLane);
+  return print_bits_right_to_left(lane, num_bytes, os);
+}
+
 }  // namespace
 
 template <typename ScanFn>
@@ -71,6 +96,7 @@ void BM_scanning(benchmark::State& state) {
   std::vector<uint32_t> tuples(NUM_TUPLES);
   for (size_t i = 0; i < NUM_TUPLES; ++i) {
     tuples[i] = rng() & ((1 << COMPRESS_BITS) - 1);
+    // tuples[i] = 42;  // for debugging
   }
 
   CompressedColumn compressed_column = compress_input(tuples);
@@ -377,16 +403,17 @@ struct vector_scan {
   using VecT __attribute__((vector_size(16))) = T;
 
   using VecU8x16 = VecT<uint8_t>;
-  using VecS32x4 = VecT<int32_t>;
+  using VecU32x4 = VecT<uint32_t>;
 
-  const VecU8x16 SHUFFLE_MASKS[3] = {
+  static constexpr VecU8x16 SHUFFLE_MASKS[3] = {
       VecU8x16{6, 5, 4, 3, 5, 4, 3, 2, 5, 3, 2, 1, 3, 2, 1, 0},
       VecU8x16{10, 9, 8, 7, 9, 8, 7, 6, 8, 7, 6, 5, 7, 6, 5, 4},
       VecU8x16{14, 13, 12, 11, 13, 12, 11, 10, 12, 11, 10, 9, 11, 10, 9, 8},
   };
 
-  static constexpr VecS32x4 BYTE_ALIGN_MASK = {1 << 0, 1 << 1, 1 << 2, 1 << 3};
-  static constexpr VecU8x16 AND_MASK = {0, 0, 1, 255, 0, 0, 1, 255, 0, 0, 1, 255, 0, 0, 1, 255};
+  // Note: the masks are inverted, i.e., they are ordered as {nth, (n-1)th, (n-2)th, ..., 0th}.
+  static constexpr VecU32x4 BYTE_ALIGN_MASK = {3, 2, 1, 0};
+  static constexpr VecU8x16 AND_MASK = {255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0};
 
   template <size_t ITER, typename CallbackFn>
   inline void decompress_iteration(VecU8x16 batch_lane, CallbackFn callback, const uint8_t dangling_bits) {
@@ -407,16 +434,25 @@ struct vector_scan {
 #endif
     };
 
+    DEBUG_DO(std::cout << "load:  "; print_lane(&batch_lane););
+
     VecU8x16 lane = shuffle_input();
-    lane = reinterpret_cast<VecS32x4&>(lane) * BYTE_ALIGN_MASK;
+    DEBUG_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
+
+    lane = reinterpret_cast<VecU32x4&>(lane) << BYTE_ALIGN_MASK;
+    DEBUG_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
 
     // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
     // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
     // need to shift by 4 * `iter` to include this shift.
     const int32_t shift = 3 + (ITER * 4) + dangling_bits;
 
-    lane = reinterpret_cast<VecS32x4&>(lane) >> shift;
-    lane = lane && AND_MASK;
+    lane = reinterpret_cast<VecU32x4&>(lane) >> shift;
+    DEBUG_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
+
+    lane = lane & AND_MASK;
+    DEBUG_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
+
     callback(lane);
   }
 
@@ -440,8 +476,8 @@ struct vector_scan {
   }
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    auto store_fn = [&](VecS32x4 decompressed_values) {
-      *reinterpret_cast<VecS32x4*>(output) = decompressed_values;
+    auto store_fn = [&](VecU32x4 decompressed_values) {
+      *reinterpret_cast<VecU32x4*>(output) = decompressed_values;
       output += VALUES_PER_ITERATION;
     };
 
@@ -451,6 +487,6 @@ struct vector_scan {
 
 BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
 BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
-// BENCHMARK(BM_scanning<vector_scan>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan>)->BM_ARGS;
 
 BENCHMARK_MAIN();
