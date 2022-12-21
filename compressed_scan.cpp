@@ -60,6 +60,14 @@ CompressedColumn compress_input(const std::vector<uint32_t>& input) {
   return compressed_data;
 }
 
+void print_bits_right_to_left(void* data, size_t num_bytes, std::ostream& os) {
+  auto* bytes = reinterpret_cast<uint8_t*>(data);
+  for (size_t offset = num_bytes; offset > 0; --offset) {
+    os << std::bitset<8>(bytes[offset - 1]) << ' ';
+  }
+  os << std::endl;
+}
+
 template <typename SimdLane>
 void print_lane(SimdLane* lane, std::ostream& os = std::cout) {
   constexpr size_t num_bytes = sizeof(SimdLane);
