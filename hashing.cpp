@@ -90,11 +90,11 @@ struct neon_hash {
     // (a0Lo * b0Hi + a0Hi * b0Lo) << 32, (a1Lo * b1Hi + a1Hi * b1Lo) << 32
     uint64x2_t hi_lo_pair_product_sums_shifted = vshlq_n_u64(hi_lo_pair_product_sums, 32);
 
-    // a0Lo, a1Lo, 0, 0
-    uint32x4_t a_lo = vmovn_u64(a);
+    // a0Lo, a1Lo
+    uint32x2_t a_lo = vmovn_u64(a);
 
-    // b0Lo, b1Lo, 0, 0
-    uint32x4_t b_lo = vmovn_u64(b);
+    // b0Lo, b1Lo
+    uint32x2_t b_lo = vmovn_u64(b);
 
     // a0Lo * b0Lo + (a0Lo * b0Hi + a0Hi * b0Lo) << 32, a1Lo * b1Lo + (a1Lo * b1Hi + a1Hi * b1Lo) << 32
     return vmlal_u32(hi_lo_pair_product_sums_shifted, b_lo, a_lo);
@@ -115,7 +115,7 @@ struct neon_hash {
 
     for (size_t i = 0; i < NUM_KEYS / KEYS_PER_ITERATION; ++i) {
       auto multiplied = multiply(typed_input_ptr[i], factor_vec);
-      auto shifted = vshr_n_u64(multiplied, shift);
+      auto shifted = vshlq_u64(multiplied, shift_vec);
       typed_output_ptr[i] = shifted;
     }
   }
@@ -194,13 +194,14 @@ BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
 
 #endif
 
-struct
+struct naive_scalar_hash {
 #if GCC_COMPILER
     __attribute__((optimize("no-tree-vectorize")))
 #endif
-    naive_scalar_hash {
   void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
+#if !GCC_COMPILER
 #pragma clang loop vectorize(disable)
+#endif
     for (size_t i = 0; i < NUM_KEYS; ++i) {
       (*result)[i] = calculate_hash(keys_to_hash[i], required_bits);
     }
