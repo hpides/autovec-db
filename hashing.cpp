@@ -4,8 +4,8 @@
 #include <numeric>
 #include <random>
 
-#include "common.hpp"
 #include "benchmark/benchmark.h"
+#include "common.hpp"
 
 #define BM_ARGS Repetitions(1)->Arg(27)
 
@@ -76,26 +76,47 @@ void BM_hashing(benchmark::State& state) {
 #if defined(__aarch64__)
 #include <arm_neon.h>
 
-/** Doing this in NEON is not very useful, as we can neither do a vector multiply nor a variable right shift. */
 struct neon_hash {
+  uint64x2_t multiply(uint64x2_t a, uint64x2_t b) {
+    // b0Hi, b0Lo, b1Hi, b1Lo
+    uint32x4_t b_hi_lo_swapped = vrev64q_u32(b);
+
+    // a0Lo * b0Hi, a0Hi * b0Lo, a1Lo * b1Hi, a1Hi * b1Lo
+    uint32x4_t product_hi_lo_pairs = vmulq_u32(a, b_hi_lo_swapped);
+
+    // (a0Lo * b0Hi + a0Hi * b0Lo), (a1Lo * b1Hi + a1Hi * b1Lo)
+    uint64x2_t hi_lo_pair_product_sums = vpaddlq_u32(product_hi_lo_pairs);
+
+    // (a0Lo * b0Hi + a0Hi * b0Lo) << 32, (a1Lo * b1Hi + a1Hi * b1Lo) << 32
+    uint64x2_t hi_lo_pair_product_sums_shifted = vshlq_n_u64(hi_lo_pair_product_sums, 32);
+
+    // a0Lo, a1Lo, 0, 0
+    uint32x4_t a_lo = vmovn_u64(a);
+
+    // b0Lo, b1Lo, 0, 0
+    uint32x4_t b_lo = vmovn_u64(b);
+
+    // a0Lo * b0Lo + (a0Lo * b0Hi + a0Hi * b0Lo) << 32, a1Lo * b1Lo + (a1Lo * b1Hi + a1Hi * b1Lo) << 32
+    return vmlal_u32(hi_lo_pair_product_sums_shifted, b_lo, a_lo);
+  }
+
+  using VecT = uint64x2_t;
+  static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
+  static_assert(NUM_KEYS % KEYS_PER_ITERATION == 0);
+
   void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
-    // TODO(Richard): Unify with x86_128 implementation
-    static_assert(NUM_KEYS % 2 == 0);
-    using VecArray = std::array<uint64x2_t, NUM_KEYS / 2>;
+    auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
+    auto* typed_output_ptr = reinterpret_cast<VecT*>(result->data());
 
-    auto& hashes = reinterpret_cast<VecArray&>(*result);
+    VecT factor_vec = vdupq_n_u64(MULTIPLY_CONSTANT);
+    uint64_t shift = 64 - required_bits;
+    // right shift is not available with run-time values, so we left-shift by a negative offset
+    VecT shift_vec = vdupq_n_u64(-shift);
 
-    // We need this "hack" here, as NEON requires the right shift value to be a compile-time constant. So we shift left
-    // with a negative value.
-    int64_t shift_by = -(64 - static_cast<int64_t>(required_bits));
-    uint64x2_t shift_value = vmovq_n_u64(shift_by);
-
-    for (size_t i = 0; i < NUM_KEYS / 2; ++i) {
-      const size_t offset = i * 2;
-      alignas(16) std::array<uint64_t, 2> keys{keys_to_hash[offset] * MULTIPLY_CONSTANT,
-                                               keys_to_hash[offset + 1] * MULTIPLY_CONSTANT};
-      uint64x2_t multiplied_keys = vld1q_u64(keys.data());
-      hashes[i] = vshlq_u64(multiplied_keys, shift_value);
+    for (size_t i = 0; i < NUM_KEYS / KEYS_PER_ITERATION; ++i) {
+      auto multiplied = multiply(typed_input_ptr[i], factor_vec);
+      auto shifted = vshr_n_u64(multiplied, shift);
+      typed_output_ptr[i] = shifted;
     }
   }
 };
@@ -175,9 +196,9 @@ BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
 
 struct
 #if GCC_COMPILER
-__attribute__((optimize("no-tree-vectorize")))
+    __attribute__((optimize("no-tree-vectorize")))
 #endif
-naive_scalar_hash {
+    naive_scalar_hash {
   void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
 #pragma clang loop vectorize(disable)
     for (size_t i = 0; i < NUM_KEYS; ++i) {
