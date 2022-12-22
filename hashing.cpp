@@ -136,10 +136,10 @@ struct x86_128_hash {
     auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
     auto* typed_output_ptr = reinterpret_cast<VecT*>(result->data());
 
-    VecT factor_vec = _mm_set_epi64x(0x75f17d6b3588f843ull, 0x75f17d6b3588f843ull);
+    VecT factor_vec = _mm_set1_epi64x(MULTIPLY_CONSTANT);
     uint64_t shift = 64 - required_bits;
 
-    for (size_t i = 0; i < NUM_KEYS / 2; ++i) {
+    for (size_t i = 0; i < NUM_KEYS / KEYS_PER_ITERATION; ++i) {
       auto multiplied = multiply(typed_input_ptr[i], factor_vec);
       auto shifted = _mm_srli_epi64(multiplied, shift);
       typed_output_ptr[i] = shifted;
@@ -150,8 +150,22 @@ BENCHMARK(BM_hashing<x86_128_hash>)->BM_ARGS;
 
 #if defined(AVX512_AVAILABLE)
 struct x86_512_hash {
+  using VecT = __m512i;
+  static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
+  static_assert(NUM_KEYS % KEYS_PER_ITERATION == 0);
+
   void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
-    // TODO(Richard)
+    auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
+    auto* typed_output_ptr = reinterpret_cast<VecT*>(result->data());
+
+    VecT factor_vec = _mm512_set1_epi64(MULTIPLY_CONSTANT);
+    uint64_t shift = 64 - required_bits;
+
+    for (size_t i = 0; i < NUM_KEYS / KEYS_PER_ITERATION; ++i) {
+      auto multiplied = _mm512_mullo_epi64(typed_input_ptr[i], factor_vec);
+      auto shifted = _mm512_srli_epi64(multiplied, shift);
+      typed_output_ptr[i] = shifted;
+    }
   }
 };
 BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
