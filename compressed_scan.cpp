@@ -3,16 +3,20 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <numeric>
 #include <random>
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
 
-#define BM_ARGS Repetitions(1)->Unit(benchmark::kMillisecond)
+// This is the lowest common multiple of 12 and 56. We need 12 for the 128-Bit version and 56 for the 512-Bit one.
+static constexpr uint64_t NUM_BASE_TUPLES = 168;
 
-// static constexpr uint64_t NUM_TUPLES = 48 * 1024 * 1024;  // ~50 million (and divisible by 12 and 16)
-static constexpr uint64_t NUM_TUPLES = 48 * 10;
+// static constexpr uint64_t SCALE_FACTOR = 1;
+static constexpr uint64_t SCALE_FACTOR = 6000;  // With a 168 base, this gives us 1'008'000 tuples.
+
+static constexpr uint64_t NUM_TUPLES = NUM_BASE_TUPLES * SCALE_FACTOR;
 static constexpr size_t COMPRESS_BITS = 9;
 
 namespace {
@@ -25,6 +29,20 @@ struct AlignedData {
     }
     std::memset(data, 0, num_entries * sizeof(T));
   }
+
+  ~AlignedData() { free(data); }
+
+  // We don't need any of these for the benchmarks.
+  AlignedData(const AlignedData&) = delete;
+  AlignedData& operator=(const AlignedData&) = delete;
+  AlignedData& operator=(AlignedData&&) = delete;
+
+  AlignedData(AlignedData&&) noexcept = default;
+
+  // Docs for assume_aligned: https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p1007r3.pdf
+  [[nodiscard]] T* aligned_data() { return std::assume_aligned<ALIGN>(data); }
+
+ private:
   T* data;
 };
 
@@ -37,7 +55,7 @@ CompressedColumn compress_input(const std::vector<uint32_t>& input) {
 
   const size_t tuples_per_u64 = U64_BITS / COMPRESS_BITS;
   CompressedColumn compressed_data(input.size() * (tuples_per_u64 + 1));
-  uint64_t* buffer = compressed_data.data;
+  uint64_t* buffer = compressed_data.aligned_data();
 
   uint64_t bits_left = U64_BITS;
   size_t idx = 0;
@@ -85,8 +103,8 @@ void BM_scanning(benchmark::State& state) {
 
   std::vector<uint32_t> tuples(NUM_TUPLES);
   for (size_t i = 0; i < NUM_TUPLES; ++i) {
-    //    tuples[i] = rng() & ((1 << COMPRESS_BITS) - 1);
-    tuples[i] = 42;  // for debugging
+    tuples[i] = rng() & ((1 << COMPRESS_BITS) - 1);
+    //    tuples[i] = 42;  // for debugging
   }
 
   CompressedColumn compressed_column = compress_input(tuples);
@@ -94,18 +112,18 @@ void BM_scanning(benchmark::State& state) {
 
   // Do one pass to test that the code is correct.
   {
-    scan_fn(compressed_column.data, decompressed_column.data, NUM_TUPLES);
+    scan_fn(compressed_column.aligned_data(), decompressed_column.aligned_data(), NUM_TUPLES);
     for (size_t i = 0; i < NUM_TUPLES; ++i) {
-      if (decompressed_column.data[i] != tuples[i]) {
+      if (decompressed_column.aligned_data()[i] != tuples[i]) {
         throw std::runtime_error{"Wrong decompression result at [" + std::to_string(i) + "]"};
       }
     }
   }
 
   for (auto _ : state) {
-    benchmark::DoNotOptimize(compressed_column.data);
-    scan_fn(compressed_column.data, decompressed_column.data, NUM_TUPLES);
-    benchmark::DoNotOptimize(decompressed_column.data);
+    benchmark::DoNotOptimize(compressed_column.aligned_data());
+    scan_fn(compressed_column.aligned_data(), decompressed_column.aligned_data(), NUM_TUPLES);
+    benchmark::DoNotOptimize(decompressed_column.aligned_data());
   }
 }
 
@@ -190,8 +208,6 @@ struct neon_scan {
     decompressor(input, num_tuples, store_fn);
   }
 };
-
-BENCHMARK(BM_scanning<neon_scan>)->BM_ARGS;
 #endif
 
 #if defined(__x86_64__)
@@ -266,13 +282,12 @@ struct x86_128_scan {
     decompressor(input, num_tuples, store_fn);
   }
 };
+#endif
 
 #if defined(AVX512_AVAILABLE)
 struct x86_512_scan {
   static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
   static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
-  static constexpr size_t BYTE_PER_ITERATION16 = 16 * 9 / 8;
-  static constexpr size_t BYTE_PER_ITERATION8 = 8 * 9 / 8;
 
   // clang-format off
   const __m512i LANE_SHUFFLE_MASKS[4] = {
@@ -290,8 +305,9 @@ struct x86_512_scan {
   const __m512i SHIFT_MASK = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
   const __m512i AND_MASK = _mm512_set1_epi32((1 << COMPRESS_BITS) - 1);
 
-  inline __m512i decompress(__m512i batch_lane, uint16_t iter) {
-    __m512i lane = _mm512_permutexvar_epi16(LANE_SHUFFLE_MASKS[iter], batch_lane);
+  template <size_t ITER>
+  inline __m512i decompress(__m512i batch_lane) {
+    __m512i lane = _mm512_permutexvar_epi16(LANE_SHUFFLE_MASKS[ITER], batch_lane);
     lane = _mm512_shuffle_epi8(lane, SHUFFLE_MASK);
     lane = _mm512_srlv_epi32(lane, SHIFT_MASK);
     lane = _mm512_and_epi32(lane, AND_MASK);
@@ -299,50 +315,46 @@ struct x86_512_scan {
   }
 
   template <typename CallbackFn>
-  inline void decompress16(__m512i batch_lane, CallbackFn callback, uint16_t iter) {
-    __m512i lane = decompress(batch_lane, iter);
-    callback(lane);
-  }
-
-  template <typename CallbackFn>
-  inline void decompress8(__m512i batch_lane, CallbackFn callback) {
-    __m512i lane = decompress(batch_lane, 3);
-    __m256i half_lane = _mm512_castsi512_si256(lane);
-    callback(half_lane);
-  }
-
-  template <typename CallbackFn>
   inline void decompress_batch(const __m512i batch_lane, CallbackFn callback) {
-    decompress16(batch_lane, callback, 0);
-    decompress16(batch_lane, callback, 1);
-    decompress16(batch_lane, callback, 2);
-    decompress8(batch_lane, callback);
+    callback(decompress<0>(batch_lane));
+    callback(decompress<1>(batch_lane));
+    callback(decompress<2>(batch_lane));
+
+    // Last iteration are only 8 values.
+    callback(_mm512_castsi512_si256(decompress<3>(batch_lane)));
   }
 
   template <typename CallbackFn>
-  void decompressor(void* input_compressed, size_t input_size, CallbackFn callback) {
-    const size_t num_batches = input_size / VALUES_PER_BATCH;
-    auto* compressed_data = static_cast<uint8_t*>(input_compressed);
+  void decompressor(const void* input_compressed, size_t num_tuples, CallbackFn callback) {
+    const size_t num_batches = num_tuples / VALUES_PER_BATCH;
+    const auto* compressed_data = static_cast<const uint8_t*>(input_compressed);
 
     for (size_t batch = 0; batch < num_batches; ++batch) {
       const size_t offset = batch * BYTES_PER_BATCH;
-      auto* pos = reinterpret_cast<__m512i*>(compressed_data + offset);
+      const auto* pos = reinterpret_cast<const __m512i*>(compressed_data + offset);
       __m512i batch_lane = _mm512_loadu_si512(pos);
       decompress_batch(batch_lane, callback);
     }
   }
 
-  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t bits_needed) {
-    // TODO
-    (void)input;
-    (void)output;
-    (void)bits_needed;
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    // We don't care about the attributes here, and we know that this is okay.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wignored-attributes"
+    auto store_fn = [&]<typename Lane>(Lane decompressed_values) {
+      if constexpr (std::is_same_v<Lane, __m512i>) {
+        _mm512_storeu_si512(reinterpret_cast<__m512i*>(output), reinterpret_cast<__m512i&>(decompressed_values));
+        output += 16;
+      } else if constexpr (std::is_same_v<Lane, __m256i>) {
+        _mm256_store_si256(reinterpret_cast<__m256i*>(output), reinterpret_cast<__m256i&>(decompressed_values));
+        output += 8;
+      }
+    };
+#pragma GCC diagnostic pop
+
+    decompressor(input, num_tuples, store_fn);
   }
 };
-BENCHMARK(BM_scanning<x86_512_scan>)->BM_ARGS;
-#endif
-
-BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
 #endif
 
 struct naive_scalar_scan {
@@ -413,17 +425,18 @@ struct vector_scan {
   template <typename T>
   using VecT __attribute__((vector_size(16))) = T;
 
-  template <typename VecT, size_t ALIGN>
-  using UnalignedVecT __attribute__((aligned(ALIGN))) = VecT;
+  template <typename T>
+  using UnalignedVecT __attribute__((vector_size(16), aligned(1))) = T;
 
   using VecU8x16 = VecT<uint8_t>;
-  using UnalignedVecU8x16 = UnalignedVecT<VecU8x16, 8>;
+  using UnalignedVecU8x16 = UnalignedVecT<uint8_t>;
   using VecU32x4 = VecT<uint32_t>;
 
+  // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
   static constexpr VecU8x16 SHUFFLE_MASKS[3] = {
-      VecU8x16{6, 5, 4, 3, 5, 4, 3, 2, 5, 3, 2, 1, 3, 2, 1, 0},
-      VecU8x16{10, 9, 8, 7, 9, 8, 7, 6, 8, 7, 6, 5, 7, 6, 5, 4},
-      VecU8x16{14, 13, 12, 11, 13, 12, 11, 10, 12, 11, 10, 9, 11, 10, 9, 8},
+      VecU8x16{0, 1, 2, 3, 1, 2, 3, 5, 2, 3, 4, 5, 3, 4, 5, 6},
+      VecU8x16{4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10},
+      VecU8x16{8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14},
   };
 
   // Note: the masks are inverted, i.e., they are ordered as {nth, (n-1)th, (n-2)th, ..., 0th}.
@@ -434,8 +447,6 @@ struct vector_scan {
   inline void decompress_iteration(VecU8x16 batch_lane, CallbackFn callback, const uint8_t dangling_bits) {
     auto shuffle_input = [&] {
       static_assert(ITER < 3, "Cannot do more than 3 iterations per lane.");
-      // We can do __builtin_shufflevector in both clang and gcc, but we want to show that this works slightly
-      // differently in both, as clang does not support __builtin_shuffle with a runtime mask.
 #if GCC_COMPILER
       return __builtin_shuffle(batch_lane, SHUFFLE_MASKS[ITER]);
 #else
@@ -501,8 +512,22 @@ struct vector_scan {
   }
 };
 
-// BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
-// BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
+#define BM_ARGS Repetitions(1)->Unit(benchmark::kMicrosecond)
+
+#if defined(__aarch64__)
+BENCHMARK(BM_scanning<neon_scan>)->BM_ARGS;
+#endif
+
+#if defined(__x86_64__)
+BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
+#endif
+
+#if defined(AVX512_AVAILABLE)
+BENCHMARK(BM_scanning<x86_512_scan>)->BM_ARGS;
+#endif
+
+BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
+BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan>)->BM_ARGS;
 
 BENCHMARK_MAIN();

@@ -1,8 +1,8 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 #if (defined(__GNUC__) && !defined(__clang__))
 #define GCC_COMPILER 1
@@ -11,21 +11,24 @@
 #endif
 
 #ifdef NDEBUG
-#define DEBUG_DO(block) (void) 0
+#define DEBUG_DO(block) (void)0
 #else
-//#define DEBUG_DO(block) do { block } while(0)
-#define DEBUG_DO(block) (void) 0
+#define DEBUG_DO(block) \
+  do {                  \
+    block               \
+  } while (0)
 #endif
 
-
-#if(defined(__AVX512VBMI2__))
+// We assume that _if_ a server has AVX512, it has everything we need.
+// To check this, we use the AVX512 Foundation.
+#if (defined(__AVX512F__))
 #define AVX512_AVAILABLE
 #endif
 
 template <typename DataT, size_t NUM_ENTRIES, size_t ALIGN>
 struct alignas(ALIGN) AlignedArray {
   // We want to use an empty custom constructor here to avoid zeroing the array when creating an AlignedArray.
-  AlignedArray(){}
+  AlignedArray() {}
 
   std::array<uint64_t, NUM_ENTRIES> data;
 };
