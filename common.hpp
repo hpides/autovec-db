@@ -30,5 +30,11 @@ struct alignas(ALIGN) AlignedArray {
   // We want to use an empty custom constructor here to avoid zeroing the array when creating an AlignedArray.
   AlignedArray() {}
 
-  std::array<uint64_t, NUM_ENTRIES> data;
+  std::array<DataT, NUM_ENTRIES> arr;
+  DataT* data() noexcept { return arr.data(); }
+  const DataT* data() const noexcept { return arr.data(); }
+  DataT& operator[](size_t i) noexcept { return arr[i]; }
+  const DataT& operator[](size_t i) const noexcept { return arr[i]; }
+
+  auto operator<=>(const AlignedArray<DataT, NUM_ENTRIES, ALIGN>& other) const = default;
 };
