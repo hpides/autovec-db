@@ -7,8 +7,4 @@ function run_format() {
     find "${DIR}"/"${subdir}" \( -iname '*.hpp' -o -iname '*.cpp' \) -print0 | xargs -0 clang-format -i
 }
 
-run_format "include"
-run_format "src"
-run_format "test"
-run_format "examples"
 run_format "benchmarks"

@@ -1,10 +1,10 @@
+#include <benchmark/benchmark.h>
+
 #include <array>
 #include <bit>
 #include <cstdint>
 #include <numeric>
 #include <random>
-
-#include <benchmark/benchmark.h>
 
 static constexpr uint64_t NUM_ENTRIES = 15;
 static constexpr uint64_t NO_MATCH = std::numeric_limits<uint64_t>::max();
