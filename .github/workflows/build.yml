@@ -15,7 +15,8 @@ jobs:
       matrix:
         # Use these as defaults
         build-type: [ Release ]
-        compiler: { c: clang, cxx: clang++, version: 15 }
+        compiler:
+          - { c: clang, cxx: clang++, version: 15 }
 
         config:
           - name: Ubuntu | Clang
