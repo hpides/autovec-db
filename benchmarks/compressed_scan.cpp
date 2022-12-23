@@ -142,13 +142,13 @@ struct neon_scan {
       // clang-format on
     };
 
-    DEBUG_DO(std::cout << "load:  "; print_lane(&batch_lane););
+    TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
 
     uint8x16_t lane = shuffle_input();
-    DEBUG_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
 
     lane = vshlq_s32(vreinterpretq_s32_u8(lane), BYTE_ALIGN_MASK);
-    DEBUG_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
 
     // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
     // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
@@ -159,10 +159,10 @@ struct neon_scan {
     int32x4_t shift_lane = vmovq_n_s32(-shift);
 
     lane = vshlq_s32(vreinterpretq_s32_u8(lane), shift_lane);
-    DEBUG_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
 
     lane = vandq_u8(lane, AND_MASK);
-    DEBUG_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
 
     callback(lane);
   }
@@ -218,14 +218,14 @@ struct x86_128_scan {
 
   template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
   inline void decompress_iteration(__m128i batch_lane, CallbackFn callback) {
-    DEBUG_DO(std::cout << "load:  "; print_lane(&batch_lane););
+    TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
 
     __m128i lane = _mm_shuffle_epi8(batch_lane, SHUFFLE_MASKS[ITER]);
-    DEBUG_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
 
     // We need to use a multiply here instead of a shift, as _mm_sllv_epi32 is not available until AVX2.
     lane = _mm_mullo_epi32(lane, BYTE_ALIGN_MASK);
-    DEBUG_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
 
     // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
     // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
@@ -233,10 +233,10 @@ struct x86_128_scan {
     constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
 
     lane = _mm_srli_epi32(lane, shift);
-    DEBUG_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
 
     lane = _mm_and_si128(lane, AND_MASK);
-    DEBUG_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
 
     callback(lane);
   }
@@ -304,19 +304,19 @@ struct x86_512_scan {
 
   template <size_t ITER>
   inline __m512i decompress(__m512i batch_lane) {
-    DEBUG_DO(std::cout << "load: "; print_lane(&batch_lane););
+    TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
 
     __m512i lane = _mm512_permutexvar_epi16(LANE_SHUFFLE_MASKS[ITER], batch_lane);
-    DEBUG_DO(std::cout << "a16 : "; print_lane(&lane););
+    TRACE_DO(std::cout << "a16 : "; print_lane(&lane););
 
     lane = _mm512_shuffle_epi8(lane, SHUFFLE_MASK);
-    DEBUG_DO(std::cout << "a4  : "; print_lane(&lane););
+    TRACE_DO(std::cout << "a4  : "; print_lane(&lane););
 
     lane = _mm512_srlv_epi32(lane, SHIFT_MASK);
-    DEBUG_DO(std::cout << "bit : "; print_lane(&lane););
+    TRACE_DO(std::cout << "bit : "; print_lane(&lane););
 
     lane = _mm512_and_epi32(lane, AND_MASK);
-    DEBUG_DO(std::cout << "and : "; print_lane(&lane););
+    TRACE_DO(std::cout << "and : "; print_lane(&lane););
 
     return lane;
   }
@@ -464,13 +464,13 @@ struct vector_128_scan {
 #endif
     };
 
-    DEBUG_DO(std::cout << "load:  "; print_lane(&batch_lane););
+    TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
 
     VecU8x16 lane = shuffle_input();
-    DEBUG_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
 
     lane = reinterpret_cast<VecU32x4&>(lane) << BYTE_ALIGN_MASK;
-    DEBUG_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
 
     // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
     // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
@@ -478,10 +478,10 @@ struct vector_128_scan {
     constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
 
     lane = reinterpret_cast<VecU32x4&>(lane) >> shift;
-    DEBUG_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
 
     lane = lane & AND_MASK;
-    DEBUG_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
+    TRACE_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
 
     callback(lane);
   }
@@ -590,19 +590,19 @@ struct vector_512_scan {
 #endif
     };
 
-    DEBUG_DO(std::cout << "load: "; print_lane(&batch_lane););
+    TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
 
     VecU16x32 lane = shuffle_input();
-    DEBUG_DO(std::cout << "a16 : "; print_lane(&lane););
+    TRACE_DO(std::cout << "a16 : "; print_lane(&lane););
 
     auto lane2 = shuffle_lane(reinterpret_cast<VecU8x64&>(lane));
-    DEBUG_DO(std::cout << "a4  : "; print_lane(&lane2););
+    TRACE_DO(std::cout << "a4  : "; print_lane(&lane2););
 
     auto lane3 = reinterpret_cast<VecU32x16&>(lane2) >> SHIFT_MASK;
-    DEBUG_DO(std::cout << "bit : "; print_lane(&lane3););
+    TRACE_DO(std::cout << "bit : "; print_lane(&lane3););
 
     auto lane4 = lane3 & AND_MASK;
-    DEBUG_DO(std::cout << "and : "; print_lane(&lane4););
+    TRACE_DO(std::cout << "and : "; print_lane(&lane4););
 
     return lane4;
   }
