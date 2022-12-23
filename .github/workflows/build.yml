@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-22.04
+    runs-on: self-hosted
     strategy:
       fail-fast: false
       matrix:
@@ -30,11 +30,6 @@ jobs:
       CXX: ${{matrix.compiler.cxx}}-${{matrix.compiler.version}}
 
     steps:
-      - name: Install Compiler
-        run: |
-          sudo apt update
-          sudo apt -y install $CC
-
       - uses: actions/checkout@v2
 
       - name: Create Build Environment
