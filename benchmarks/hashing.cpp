@@ -194,13 +194,12 @@ BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
 
 #endif
 
-// This #ifdef stuff confuses clang format.
-// clang-format off
 struct naive_scalar_hash {
 #if GCC_COMPILER
   __attribute__((optimize("no-tree-vectorize")))
 #endif
-  void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
+  void
+  operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
 #if !GCC_COMPILER
 #pragma clang loop vectorize(disable)
 #endif
@@ -209,7 +208,6 @@ struct naive_scalar_hash {
     }
   }
 };
-// clang-format on
 
 struct autovec_scalar_hash {
   void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
