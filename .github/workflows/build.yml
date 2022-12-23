@@ -43,6 +43,25 @@ jobs:
         run: cmake ${{github.workspace}} -DCMAKE_BUILD_TYPE=${{matrix.config.build-type}}
 
       - name: Build
+        id: build
         working-directory: ${{github.workspace}}/build
         shell: bash
         run: cmake --build . --config ${{matrix.config.build-type}} -- -j
+
+      - name: Run Hashing Benchmark
+        working-directory: ${{github.workspace}}/build/benchmarks
+        shell: bash
+        if: ${{ steps.build.conclusion == 'success' }}
+        run: ./hashing
+
+      - name: Run Compressed Scan Benchmark
+        working-directory: ${{github.workspace}}/build/benchmarks
+        shell: bash
+        if: ${{ steps.build.conclusion == 'success' }}
+        run: ./compressed_scan
+
+      - name: Run Hash Bucket Benchmark
+        working-directory: ${{github.workspace}}/build/benchmarks
+        shell: bash
+        if: ${{ steps.build.conclusion == 'success' }}
+        run: ./hash_bucket
