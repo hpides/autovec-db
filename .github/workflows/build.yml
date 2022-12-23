@@ -14,8 +14,9 @@ jobs:
       fail-fast: false
       matrix:
         # Use these by default
-        build-type: Release
-        compiler: { c: clang, cxx: clang++, version: 15 }
+        build-type: [ Release ]
+        compiler:
+          - { c: clang, cxx: clang++, version: 15 }
 
         include:
           # Do one run with GCC
