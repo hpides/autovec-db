@@ -50,17 +50,17 @@ jobs:
       - name: Run Hashing Benchmark
         working-directory: ${{github.workspace}}/build
         shell: bash
-        if: ${{ steps.build.conclusion == 'success' }}
+        if: ${{ always() && steps.build.conclusion == 'success' }}
         run: ./hashing
 
       - name: Run Compressed Scan Benchmark
         working-directory: ${{github.workspace}}/build
         shell: bash
-        if: ${{ steps.build.conclusion == 'success' }}
+        if: ${{ always() && steps.build.conclusion == 'success' }}
         run: ./compressed_scan
 
       - name: Run Hash Bucket Benchmark
         working-directory: ${{github.workspace}}/build
         shell: bash
-        if: ${{ steps.build.conclusion == 'success' }}
+        if: ${{ always() && steps.build.conclusion == 'success' }}
         run: ./hash_bucket
