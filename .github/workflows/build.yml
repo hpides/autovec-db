@@ -30,6 +30,11 @@ jobs:
       CXX: ${{matrix.compiler.cxx}}-${{matrix.compiler.version}}
 
     steps:
+      - name: Install Compiler
+        run: |
+          sudo apt update
+          sudo apt -y install $CC
+
       - uses: actions/checkout@v2
 
       - name: Create Build Environment
