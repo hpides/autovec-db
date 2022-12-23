@@ -21,7 +21,6 @@
 #define DEBUG_DO(block) (void)0
 #endif
 
-
 // This is used for stuff that you really only want to see when you are debugging actively. To use this, either pass
 // -DENABLE_TRACE_DO or uncomment the #define line below.
 //#define ENABLE_TRACE_DO
