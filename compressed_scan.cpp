@@ -22,31 +22,6 @@ static constexpr size_t COMPRESS_BITS = 9;
 
 namespace {
 
-template <typename T, size_t ALIGN>
-struct AlignedData {
-  explicit AlignedData(size_t num_entries) : data{static_cast<T*>(std::aligned_alloc(ALIGN, num_entries * sizeof(T)))} {
-    if (data == nullptr) {
-      throw std::runtime_error{"Could not allocate memory. " + std::string{std::strerror(errno)}};
-    }
-    std::memset(data, 0, num_entries * sizeof(T));
-  }
-
-  ~AlignedData() { free(data); }
-
-  // We don't need any of these for the benchmarks.
-  AlignedData(const AlignedData&) = delete;
-  AlignedData& operator=(const AlignedData&) = delete;
-  AlignedData& operator=(AlignedData&&) = delete;
-
-  AlignedData(AlignedData&&) noexcept = default;
-
-  // Docs for assume_aligned: https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p1007r3.pdf
-  [[nodiscard]] T* aligned_data() { return std::assume_aligned<ALIGN>(data); }
-
- private:
-  T* data;
-};
-
 using CompressedColumn = AlignedData<uint64_t, 64>;
 using DecompressedColumn = AlignedData<uint32_t, 64>;
 
@@ -454,15 +429,11 @@ struct vector_128_scan {
   static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
   static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
 
-  template <typename T>
-  using VecT __attribute__((vector_size(16))) = T;
+  static constexpr size_t VECTOR_SIZE_IN_BYTES = 16;
 
-  template <typename T>
-  using UnalignedVecT __attribute__((vector_size(16), aligned(1))) = T;
-
-  using VecU8x16 = VecT<uint8_t>;
-  using UnalignedVecU8x16 = UnalignedVecT<uint8_t>;
-  using VecU32x4 = VecT<uint32_t>;
+  using VecU8x16 = VecT<uint8_t, VECTOR_SIZE_IN_BYTES>;
+  using UnalignedVecU8x16 UNALIGNED = VecT<uint8_t, VECTOR_SIZE_IN_BYTES>;
+  using VecU32x4 = VecT<uint32_t, VECTOR_SIZE_IN_BYTES>;
 
   // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
   static constexpr VecU8x16 SHUFFLE_MASKS[3] = {
@@ -555,20 +526,16 @@ struct vector_512_scan {
   static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
   static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
 
-  template <typename T>
-  using VecT __attribute__((vector_size(64))) = T;
+  static constexpr size_t VECTOR_SIZE_IN_BYTES = 64;
 
-  template <typename T>
-  using UnalignedVecT __attribute__((vector_size(64), aligned(1))) = T;
-
-  using VecU8x64 = VecT<uint8_t>;
-  using VecU16x32 = VecT<uint16_t>;
-  using VecU32x16 = VecT<uint32_t>;
-  using UnalignedVecU16x32 = UnalignedVecT<uint32_t>;
+  using VecU8x64 = VecT<uint8_t, VECTOR_SIZE_IN_BYTES>;
+  using VecU16x32 = VecT<uint16_t, VECTOR_SIZE_IN_BYTES>;
+  using VecU32x16 = VecT<uint32_t, VECTOR_SIZE_IN_BYTES>;
+  using UnalignedVecU16x32 UNALIGNED = VecT<uint32_t, VECTOR_SIZE_IN_BYTES>;
 
   // For our half-lane output.
-  using VecU32x8 __attribute__((vector_size(32))) = uint32_t;
-  using UnalignedVecU32x8 __attribute__((vector_size(32), aligned(1))) = uint32_t;
+  using VecU32x8 = VecT<uint32_t, VECTOR_SIZE_IN_BYTES / 2>;
+  using UnalignedVecU32x8 UNALIGNED = VecT<uint32_t, VECTOR_SIZE_IN_BYTES / 2>;
 
   // clang-format off
   static constexpr VecU16x32 LANE_SHUFFLE_MASKS[4] = {
@@ -665,6 +632,8 @@ struct vector_512_scan {
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     auto store_fn = [&]<typename Lane>(Lane decompressed_values) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wignored-attributes"
       if constexpr (std::is_same_v<Lane, VecU32x16>) {
         *reinterpret_cast<UnalignedVecU16x32*>(output) = decompressed_values;
         output += 16;
@@ -672,6 +641,7 @@ struct vector_512_scan {
         *reinterpret_cast<UnalignedVecU32x8*>(output) = decompressed_values;
         output += 8;
       }
+#pragma GCC diagnostic pop
     };
 
     decompressor(input, num_tuples, store_fn);
