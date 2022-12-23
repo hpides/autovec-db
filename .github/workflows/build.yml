@@ -1,0 +1,44 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      build-type: Release
+      compiler:
+        - { c: clang, cxx: clang++, version: 15 }
+      matrix:
+        include:
+          # Do one run with GCC
+          - compiler: { c: gcc, cxx: g++, version: 11 }
+
+          # Do one ASAN run
+          - build-type: Asan
+
+    env:
+      CC: ${{matrix.compiler.c}}-${{matrix.compiler.version}}
+      CXX: ${{matrix.compiler.cxx}}-${{matrix.compiler.version}}
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Create Build Environment
+        run: cmake -E make_directory ${{github.workspace}}/build
+
+      - name: Configure CMake
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: cmake ${{github.workspace}} -DCMAKE_BUILD_TYPE=${{matrix.build-type}}
+
+      - name: Build
+        working-directory: ${{github.workspace}}/build
+        shell: bash
+        run: cmake --build . --config ${{matrix.build-type}} -- -j
