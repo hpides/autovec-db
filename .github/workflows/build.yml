@@ -11,27 +11,28 @@ jobs:
     name: Build
     runs-on: self-hosted
     defaults:
-      build-type: [ Release ]
-      compiler: { c: clang, cxx: clang++, version: 15 }
     strategy:
       fail-fast: false
       matrix:
+        # Use these as defaults
+        build-type: [ Release ]
+        compiler: { c: clang, cxx: clang++, version: 15 }
+
         config:
           - name: Ubuntu | Clang
 
           - name: Ubuntu | GCC
             compiler: { c: gcc, cxx: g++, version: 11 }
 
-          - name: Ubuntu | Clang | ASAN,
-            compiler: { c: clang, cxx: clang++, version: 15 }
+          - name: Ubuntu | Clang | ASAN
             build-type: Asan
 
     env:
-      CC: ${{matrix.compiler.c}}-${{matrix.compiler.version}}
-      CXX: ${{matrix.compiler.cxx}}-${{matrix.compiler.version}}
+      CC: ${{matrix.config.compiler.c}}-${{matrix.config.compiler.version}}
+      CXX: ${{matrix.config.compiler.cxx}}-${{matrix.config.compiler.version}}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Create Build Environment
         run: cmake -E make_directory ${{github.workspace}}/build
@@ -39,9 +40,9 @@ jobs:
       - name: Configure CMake
         shell: bash
         working-directory: ${{github.workspace}}/build
-        run: cmake ${{github.workspace}} -DCMAKE_BUILD_TYPE=${{matrix.build-type}}
+        run: cmake ${{github.workspace}} -DCMAKE_BUILD_TYPE=${{matrix.config.build-type}}
 
       - name: Build
         working-directory: ${{github.workspace}}/build
         shell: bash
-        run: cmake --build . --config ${{matrix.build-type}} -- -j
+        run: cmake --build . --config ${{matrix.config.build-type}} -- -j
