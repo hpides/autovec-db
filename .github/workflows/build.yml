@@ -15,16 +15,16 @@ jobs:
       matrix:
         # Use these as defaults
         build-type: [ Release ]
-        compiler:
-          - { c: clang, cxx: clang++, version: 15 }
 
         config:
           - name: Ubuntu | Clang
+            compiler: { c: clang, cxx: clang++, version: 15 }
 
           - name: Ubuntu | GCC
             compiler: { c: gcc, cxx: g++, version: 11 }
 
           - name: Ubuntu | Clang | ASAN
+            compiler: { c: clang, cxx: clang++, version: 15 }
             build-type: Asan
 
     env:
