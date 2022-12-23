@@ -6,20 +6,21 @@ on:
       - main
   pull_request:
 
-matrix:
-  fail-fast: false
-  include:
-    - name: Ubuntu | Clang
-      compiler: { c: clang, cxx: clang++, version: 15 }
-      build-type: Release
+strategy:
+  matrix:
+    fail-fast: false
+    include:
+      - name: Ubuntu | Clang
+        compiler: { c: clang, cxx: clang++, version: 15 }
+        build-type: Release
 
-    - name: Ubuntu | GCC
-      compiler: { c: gcc, cxx: g++, version: 11 }
-      build-type: Release
+      - name: Ubuntu | GCC
+        compiler: { c: gcc, cxx: g++, version: 11 }
+        build-type: Release
 
-    - name: ASAN
-      compiler: { c: clang, cxx: clang++, version: 15 }
-      build-type: Asan
+      - name: ASAN
+        compiler: { c: clang, cxx: clang++, version: 15 }
+        build-type: Asan
 
 defaults:
   runs-on: self-hosted
