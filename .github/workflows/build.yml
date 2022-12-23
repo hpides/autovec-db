@@ -12,10 +12,11 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
-      build-type: Release
-      compiler:
-        - { c: clang, cxx: clang++, version: 15 }
       matrix:
+        # Use these by default
+        build-type: Release
+        compiler: { c: clang, cxx: clang++, version: 15 }
+
         include:
           # Do one run with GCC
           - compiler: { c: gcc, cxx: g++, version: 11 }
