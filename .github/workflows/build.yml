@@ -10,20 +10,21 @@ jobs:
   build:
     name: Build
     runs-on: self-hosted
+    default:
+      build-type: [ Release ]
+      compiler: { c: clang, cxx: clang++, version: 15 }
     strategy:
       fail-fast: false
       matrix:
-        # Use these by default
-        build-type: [ Release ]
-        compiler:
-          - { c: clang, cxx: clang++, version: 15 }
+        config:
+          - name: Ubuntu | Clang
 
-        include:
-          # Do one run with GCC
-          - compiler: { c: gcc, cxx: g++, version: 11 }
+          - name: Ubuntu | GCC
+            compiler: { c: gcc, cxx: g++, version: 11 }
 
-          # Do one ASAN run
-          - build-type: Asan
+          - name: Ubuntu | Clang | ASAN,
+            compiler: { c: clang, cxx: clang++, version: 15 }
+            build-type: Asan
 
     env:
       CC: ${{matrix.compiler.c}}-${{matrix.compiler.version}}
