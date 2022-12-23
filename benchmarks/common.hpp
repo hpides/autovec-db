@@ -23,7 +23,7 @@
 
 // This is used for stuff that you really only want to see when you are debugging actively. To use this, either pass
 // -DENABLE_TRACE_DO or uncomment the #define line below.
-//#define ENABLE_TRACE_DO
+// #define ENABLE_TRACE_DO
 #ifdef ENABLE_TRACE_DO
 #define TRACE_DO(block) \
   do {                  \
@@ -101,3 +101,25 @@ struct AlignedData {
 //
 template <typename T, size_t VECTOR_SIZE_IN_BYTES>
 using VecT __attribute__((vector_size(VECTOR_SIZE_IN_BYTES))) = T;
+
+/**
+ * Clang and GCC have slightly different calls for builtin shuffles, so we need to distinguish between theme here.
+ * GCC has __builtin_shuffle and __builtin_shufflevector (the latter only since GCC12), clang only has
+ * __builtin_shufflevector. However, __builtin_shufflevector is called differently on both. GCC requires two input
+ * vectors whereas clang requires only one. While it is possible to call it with two vectors in clang, this in turn
+ * requires the mask indexes to be "constant integers", i.e., compile-time values. The documentation on these functions
+ * is quite messy/non-existent.
+ * Clang: https://clang.llvm.org/docs/LanguageExtensions.html#builtin-shufflevector
+ *   --> This says that we always need two vectors and constant integer indexes.
+ *   But if you look at the actual implementation in clang:
+ *     https://github.com/llvm/llvm-project/blob/ef992b60798b6cd2c50b25351bfc392e319896b7/clang/lib/CodeGen/CGExprScalar.cpp#L1645-L1678
+ *   you see that the second argument (vec2 in the documentation) can actually be a runtime mask.
+ */
+template <typename VectorT>
+inline VectorT shuffle_vector(VectorT vec, VectorT mask) {
+#if GCC_COMPILER
+  return __builtin_shuffle(vec, mask);
+#else
+  return __builtin_shufflevector(vec, mask);
+#endif
+}

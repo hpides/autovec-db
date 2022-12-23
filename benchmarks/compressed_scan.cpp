@@ -448,25 +448,11 @@ struct vector_128_scan {
 
   template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
   inline void decompress_iteration(VecU8x16 batch_lane, CallbackFn callback) {
-    auto shuffle_input = [&] {
-      static_assert(ITER < 3, "Cannot do more than 3 iterations per lane.");
-#if GCC_COMPILER
-      return __builtin_shuffle(batch_lane, SHUFFLE_MASKS[ITER]);
-#else
-      // clang-format off
-      switch (ITER) {
-        case 0: return __builtin_shufflevector(batch_lane, batch_lane, 0, 1, 2, 3, 1, 2, 3, 5, 2, 3, 4, 5, 3, 4, 5, 6);
-        case 1: return __builtin_shufflevector(batch_lane, batch_lane, 4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10);
-        case 2: return __builtin_shufflevector(batch_lane, batch_lane, 8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14);
-        default: __builtin_unreachable();
-          // clang-format on
-      }
-#endif
-    };
+    static_assert(ITER < 3, "Cannot do more than 3 iterations per lane.");
 
     TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
 
-    VecU8x16 lane = shuffle_input();
+    VecU8x16 lane = shuffle_vector(batch_lane, SHUFFLE_MASKS[ITER]);
     TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
 
     lane = reinterpret_cast<VecU32x4&>(lane) << BYTE_ALIGN_MASK;
@@ -559,43 +545,14 @@ struct vector_512_scan {
 
   template <size_t ITER>
   inline VecU32x16 decompress(VecU16x32 batch_lane) {
-    auto shuffle_input = [&] {
-      static_assert(ITER < 4, "Cannot do more than 4 iterations per lane.");
-#if GCC_COMPILER
-      return __builtin_shuffle(batch_lane, LANE_SHUFFLE_MASKS[ITER]);
-#else
-      // clang-format off
-      switch (ITER) {
-        case 0: return __builtin_shufflevector(batch_lane, batch_lane, 0, 1, 2, 3, 4, 5, 6, 7, 2, 3, 4, 5, 6, 7, 8, 9, 4, 5, 6, 7, 8, 9, 10, 11, 6, 7, 8, 9, 10, 11, 12, 13);
-        case 1: return __builtin_shufflevector(batch_lane, batch_lane, 9, 10, 11, 12, 13, 14, 15, 16, 11, 12, 13, 14, 15, 16, 17, 18, 13, 14, 15, 16, 17, 18, 19, 20, 15, 16, 17, 18, 19, 20, 21, 22);
-        case 2: return __builtin_shufflevector(batch_lane, batch_lane, 18, 19, 20, 21, 22, 23, 24, 25, 20, 21, 22, 23, 24, 25, 26, 27, 22, 23, 24, 25, 26, 27, 28, 29, 24, 25, 26, 27, 28, 29, 30, 31);
-        case 3: return __builtin_shufflevector(batch_lane, batch_lane, 27, 28, 29, 30, 31, 32, 33, 34, 29, 30, 31, 32, 33, 34, 35, 36, 31, 32, 33, 34, 35, 36, 37, 38, 33, 34, 35, 36, 37, 38, 39, 40);
-        default: __builtin_unreachable();
-          // clang-format on
-      }
-#endif
-    };
-
-    auto shuffle_lane = [&](VecU8x64& lane) {
-#if GCC_COMPILER
-      return __builtin_shuffle(lane, SHUFFLE_MASK);
-#else
-      // clang-format off
-      return __builtin_shufflevector(lane, lane,
-                                     0,  1,  2,  3,  1,  2,  3,  4,  2,  3,  4,  5,  3,  4,  5,  6,
-                                     16, 17, 18, 19, 17, 18, 19, 20, 18, 19, 20, 21, 19, 20, 21, 22,
-                                     32, 33, 34, 35, 33, 34, 35, 36, 34, 35, 36, 37, 35, 36, 37, 38,
-                                     48, 49, 50, 51, 49, 50, 51, 52, 50, 51, 52, 53, 51, 52, 53, 54);
-      // clang-format on
-#endif
-    };
+    static_assert(ITER < 4, "Cano only do 4 iterations per lane.");
 
     TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
 
-    VecU16x32 lane = shuffle_input();
+    VecU16x32 lane = shuffle_vector(batch_lane, LANE_SHUFFLE_MASKS[ITER]);
     TRACE_DO(std::cout << "a16 : "; print_lane(&lane););
 
-    auto lane2 = shuffle_lane(reinterpret_cast<VecU8x64&>(lane));
+    auto lane2 = shuffle_vector(reinterpret_cast<VecU8x64&>(lane), SHUFFLE_MASK);
     TRACE_DO(std::cout << "a4  : "; print_lane(&lane2););
 
     auto lane3 = reinterpret_cast<VecU32x16&>(lane2) >> SHIFT_MASK;
