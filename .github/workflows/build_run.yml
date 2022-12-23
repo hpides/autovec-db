@@ -6,31 +6,29 @@ on:
       - main
   pull_request:
 
-strategy:
-  matrix:
-    fail-fast: false
-    include:
-      - name: Ubuntu | Clang
-        compiler: { c: clang, cxx: clang++, version: 15 }
-        build-type: Release
-
-      - name: Ubuntu | GCC
-        compiler: { c: gcc, cxx: g++, version: 11 }
-        build-type: Release
-
-      - name: ASAN
-        compiler: { c: clang, cxx: clang++, version: 15 }
-        build-type: Asan
-
-defaults:
-  runs-on: self-hosted
-  env:
-    CC: ${{matrix.compiler.c}}-${{matrix.compiler.version}}
-    CXX: ${{matrix.compiler.cxx}}-${{matrix.compiler.version}}
-
 jobs:
   build:
-    name: Build
+    name: Build + Run
+    runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu | Clang
+            compiler: { c: clang, cxx: clang++, version: 15 }
+            build-type: Release
+
+          - name: Ubuntu | GCC
+            compiler: { c: gcc, cxx: g++, version: 11 }
+            build-type: Release
+
+          - name: ASAN
+            compiler: { c: clang, cxx: clang++, version: 15 }
+            build-type: Asan
+
+    env:
+      CC: ${{matrix.compiler.c}}-${{matrix.compiler.version}}
+      CXX: ${{matrix.compiler.cxx}}-${{matrix.compiler.version}}
 
     steps:
       - uses: actions/checkout@v3
@@ -49,27 +47,6 @@ jobs:
         shell: bash
         run: cmake --build . --config ${{matrix.build-type}} -- -j
 
-      - name: Run Hashing Benchmark
-        working-directory: ${{github.workspace}}/build
-        shell: bash
-        if: ${{ steps.build.conclusion == 'success' }}
-        run: ./hashing
-
-      - name: Run Compressed Scan Benchmark
-        working-directory: ${{github.workspace}}/build
-        shell: bash
-        if: ${{ steps.build.conclusion == 'success' }}
-        run: ./compressed_scan
-
-      - name: Run Hash Bucket Benchmark
-        working-directory: ${{github.workspace}}/build
-        shell: bash
-        if: ${{ steps.build.conclusion == 'success' }}
-        run: ./hash_bucket
-
-  run:
-    name: Run Benchmarks
-    steps:
       - name: Run Hashing Benchmark
         working-directory: ${{github.workspace}}/build
         shell: bash
