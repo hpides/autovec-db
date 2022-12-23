@@ -14,7 +14,7 @@ endif()
 set(CMAKE_CXX_FLAGS_ASAN "-Og -g -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined" CACHE STRING "" FORCE)
 set(CMAKE_EXE_LINKER_FLAGS_ASAN "${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO} -fsanitize=address -fsanitize=undefined" CACHE STRING "" FORCE)
 
-set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -D_GLIBCXX_ASSERTIONS" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -D_GLIBCXX_ASSERTIONS -DENABLE_DEBUG_DO" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g3 -DNDEBUG" CACHE STRING "" FORCE)
 
@@ -63,13 +63,15 @@ endif()
 ##### COMPILE COMMANDS #####
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(AUTOVEC_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks)
+
 ##### INTERFACE TARGET FOR INCLUDE PATHS #####
 add_library(autovec_includes INTERFACE)
-target_include_directories(autovec_includes INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(autovec_includes INTERFACE ${AUTOVEC_SOURCE_DIR})
 
 ##################### Our Benchmarks ####################
 function(add_benchmark bm_name)
-  add_executable(${bm_name} ${bm_name}.cpp)
+  add_executable(${bm_name} ${AUTOVEC_SOURCE_DIR}/${bm_name}.cpp)
   target_link_libraries(${bm_name} PRIVATE autovec_includes benchmark)
   target_compile_options(${bm_name} PRIVATE "${WARNING_OPTIONS}")
 endfunction()

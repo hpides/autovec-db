@@ -1,0 +1,66 @@
+name: Build + Run
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    name: Build + Run
+    runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu | Clang
+            compiler: { c: clang, cxx: clang++, version: 15 }
+            build-type: Release
+
+          - name: Ubuntu | GCC
+            compiler: { c: gcc, cxx: g++, version: 11 }
+            build-type: Release
+
+          - name: ASAN
+            compiler: { c: clang, cxx: clang++, version: 15 }
+            build-type: Asan
+
+    env:
+      CC: ${{matrix.compiler.c}}-${{matrix.compiler.version}}
+      CXX: ${{matrix.compiler.cxx}}-${{matrix.compiler.version}}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Create Build Environment
+        run: cmake -E make_directory ${{github.workspace}}/build
+
+      - name: Configure CMake
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: cmake ${{github.workspace}} -DCMAKE_BUILD_TYPE=${{matrix.build-type}}
+
+      - name: Build
+        id: build
+        working-directory: ${{github.workspace}}/build
+        shell: bash
+        run: cmake --build . --config ${{matrix.build-type}} -- -j
+
+      - name: Run Hashing Benchmark
+        working-directory: ${{github.workspace}}/build
+        shell: bash
+        if: ${{ always() && steps.build.conclusion == 'success' }}
+        run: ./hashing
+
+      - name: Run Compressed Scan Benchmark
+        working-directory: ${{github.workspace}}/build
+        shell: bash
+        if: ${{ always() && steps.build.conclusion == 'success' }}
+        run: ./compressed_scan
+
+      - name: Run Hash Bucket Benchmark
+        working-directory: ${{github.workspace}}/build
+        shell: bash
+        if: ${{ always() && steps.build.conclusion == 'success' }}
+        run: ./hash_bucket

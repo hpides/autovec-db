@@ -196,9 +196,10 @@ BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
 
 struct naive_scalar_hash {
 #if GCC_COMPILER
-    __attribute__((optimize("no-tree-vectorize")))
+  __attribute__((optimize("no-tree-vectorize")))
 #endif
-  void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
+  void
+  operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
 #if !GCC_COMPILER
 #pragma clang loop vectorize(disable)
 #endif

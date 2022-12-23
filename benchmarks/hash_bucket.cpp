@@ -4,7 +4,7 @@
 #include <numeric>
 #include <random>
 
-#include <benchmark/benchmark.h>
+#include "benchmark/benchmark.h"
 
 static constexpr uint64_t NUM_ENTRIES = 15;
 static constexpr uint64_t NO_MATCH = std::numeric_limits<uint64_t>::max();
@@ -175,8 +175,8 @@ struct vector_find {
     // Compare fingerprints.
     auto matching_fingerprints = reinterpret_cast<__uint128_t>(fp_vector == lookup_fp);
 
-    uint64_t low_matches = *reinterpret_cast<uint64_t*>(&matching_fingerprints);
-    uint64_t high_matches = *(reinterpret_cast<uint64_t*>(&matching_fingerprints) + 1);
+    uint64_t low_matches = static_cast<uint64_t>(matching_fingerprints);
+    uint64_t high_matches = static_cast<uint64_t>(matching_fingerprints >> 64);
 
     uint64_t low_match = find_key_match(bucket, key, low_matches, 0);
     if (low_match != NO_MATCH) {

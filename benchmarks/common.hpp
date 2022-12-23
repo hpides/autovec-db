@@ -12,13 +12,25 @@
 #define GCC_COMPILER 0
 #endif
 
-#ifdef NDEBUG
-#define DEBUG_DO(block) (void)0
-#else
+#ifdef ENABLE_DEBUG_DO
 #define DEBUG_DO(block) \
   do {                  \
     block               \
   } while (0)
+#else
+#define DEBUG_DO(block) (void)0
+#endif
+
+// This is used for stuff that you really only want to see when you are debugging actively. To use this, either pass
+// -DENABLE_TRACE_DO or uncomment the #define line below.
+//#define ENABLE_TRACE_DO
+#ifdef ENABLE_TRACE_DO
+#define TRACE_DO(block) \
+  do {                  \
+    block               \
+  } while (0)
+#else
+#define TRACE_DO(block) (void)0
 #endif
 
 // We assume that _if_ a server has AVX512, it has everything we need.
