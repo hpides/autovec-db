@@ -5,6 +5,7 @@
 #include <random>
 
 #include "benchmark/benchmark.h"
+#include "common.hpp"
 
 static constexpr uint64_t NUM_ENTRIES = 15;
 static constexpr uint64_t NO_MATCH = std::numeric_limits<uint64_t>::max();
@@ -88,12 +89,8 @@ struct neon_find {
     uint8x16_t fp_vector = vld1q_u8(fingerprints);
 
     // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
-    // TODO: change this back to:
-    //         uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
-    //       and use mask for byte 16
-    uint8x16_t lookup_fp{
-        fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint,
-        fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, 0};
+    vec8x16_t lookup_fp = vmovq_n_u8(fingerprint);
+    lookup_fp[15] = 0;
 
     // Compare fingerprints.
     auto matching_fingerprints = reinterpret_cast<__uint128_t>(vceqq_u8(fp_vector, lookup_fp));
@@ -167,10 +164,8 @@ struct vector_find {
     vec8x16 fp_vector = *reinterpret_cast<vec8x16*>(fingerprints);
 
     // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
-    // TODO: change to 16 byte load + mask
-    vec8x16 lookup_fp{
-        fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint,
-        fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, 0};
+    vec8x16 lookup_fp = broadcast<vec8x16>(fingerprint);
+    lookup_fp[15] = 0;
 
     // Compare fingerprints.
     auto matching_fingerprints = reinterpret_cast<__uint128_t>(fp_vector == lookup_fp);

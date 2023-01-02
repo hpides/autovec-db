@@ -105,3 +105,8 @@ inline VectorT shuffle_vector(VectorT vec, VectorT mask) {
   return __builtin_shufflevector(vec, mask);
 #endif
 }
+
+template <typename VectorT, typename ElementT = decltype(std::declval<VectorT>()[0])>
+inline VectorT broadcast(ElementT value) {
+  return value - VectorT{};
+}
