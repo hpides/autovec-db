@@ -58,6 +58,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   list(APPEND WARNING_OPTIONS "-Wdocumentation" "-Wconditional-uninitialized" "-Wundef" "-Wunused-exception-parameter" "-Wunused-member-function")
   list(APPEND WARNING_OPTIONS "-Wno-gnu-zero-variadic-macro-arguments") # legal in c++20
   list(APPEND WARNING_OPTIONS "-Wshadow-all" "-Wno-shadow-field-in-constructor")
+  list(APPEND WARNING_OPTIONS "-Wno-psabi")  # clang bug https://github.com/llvm/llvm-project/issues/55309
 endif()
 
 ##### COMPILE COMMANDS #####
