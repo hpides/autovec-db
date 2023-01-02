@@ -545,7 +545,7 @@ struct vector_512_scan {
 
   template <size_t ITER>
   inline VecU32x16 decompress(VecU16x32 batch_lane) {
-    static_assert(ITER < 4, "Cano only do 4 iterations per lane.");
+    static_assert(ITER < 4, "Can only do 4 iterations per lane.");
 
     TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
 
