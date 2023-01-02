@@ -53,6 +53,12 @@ target_include_directories(benchmark SYSTEM INTERFACE ${_google_benchmark_includ
 
 ##### COMPILER WARNINGS #####
 list(APPEND WARNING_OPTIONS "-Wall" "-Wextra" "-Werror" "-Wpedantic" "-Wextra-semi" "-Wnon-virtual-dtor" "-Wunused" "-Wzero-as-null-pointer-constant")
+
+# disabled for clang because it triggers too often: https://github.com/llvm/llvm-project/issues/55309
+# disabled for GCC because it triggers for 512bit GCC-vector helper functions.
+# We build all files with the same compiler, so this is fine for us.
+list(APPEND WARNING_OPTIONS "-Wno-psabi")
+
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   # Additional checks not supported by GCC -- some are supported on GCC, but not ignorable / not filterable
   list(APPEND WARNING_OPTIONS "-Wdocumentation" "-Wconditional-uninitialized" "-Wundef" "-Wunused-exception-parameter" "-Wunused-member-function")

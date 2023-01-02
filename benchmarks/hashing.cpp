@@ -222,15 +222,13 @@ struct vector_hash {
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(uint64_t);
 
-  using VecT __attribute__((vector_size(VECTOR_BYTES))) = uint64_t;
+  using VecT = typename GccVec<uint64_t, VECTOR_BYTES>::T;
   static_assert(sizeof(VecT) == VECTOR_BYTES);
 
-  using VecArray = std::array<VecT, NUM_KEYS / NUM_VECTOR_ELEMENTS>;
-
   void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
-    const auto& vec_keys = reinterpret_cast<const VecArray&>(keys_to_hash);
+    const VecT* vec_keys = reinterpret_cast<const VecT*>(keys_to_hash.data());
 
-    auto& hashes = reinterpret_cast<VecArray&>(*result);
+    auto hashes = reinterpret_cast<VecT*>(result);
 
     uint64_t shift = 64 - required_bits;
     for (size_t i = 0; i < NUM_KEYS / NUM_VECTOR_ELEMENTS; ++i) {
