@@ -431,9 +431,9 @@ struct vector_128_scan {
 
   static constexpr size_t VECTOR_SIZE_IN_BYTES = 16;
 
-  using VecU8x16 = VecT<uint8_t, VECTOR_SIZE_IN_BYTES>;
-  using UnalignedVecU8x16 UNALIGNED = VecT<uint8_t, VECTOR_SIZE_IN_BYTES>;
-  using VecU32x4 = VecT<uint32_t, VECTOR_SIZE_IN_BYTES>;
+  using VecU8x16 = GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
+  using UnalignedVecU8x16 = GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
+  using VecU32x4 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
 
   // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
   static constexpr VecU8x16 SHUFFLE_MASKS[3] = {
@@ -514,14 +514,14 @@ struct vector_512_scan {
 
   static constexpr size_t VECTOR_SIZE_IN_BYTES = 64;
 
-  using VecU8x64 = VecT<uint8_t, VECTOR_SIZE_IN_BYTES>;
-  using VecU16x32 = VecT<uint16_t, VECTOR_SIZE_IN_BYTES>;
-  using VecU32x16 = VecT<uint32_t, VECTOR_SIZE_IN_BYTES>;
-  using UnalignedVecU16x32 UNALIGNED = VecT<uint32_t, VECTOR_SIZE_IN_BYTES>;
+  using VecU8x64 = GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
+  using VecU16x32 = GccVec<uint16_t, VECTOR_SIZE_IN_BYTES>::T;
+  using VecU32x16 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
+  using UnalignedVecU16x32 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
 
   // For our half-lane output.
-  using VecU32x8 = VecT<uint32_t, VECTOR_SIZE_IN_BYTES / 2>;
-  using UnalignedVecU32x8 UNALIGNED = VecT<uint32_t, VECTOR_SIZE_IN_BYTES / 2>;
+  using VecU32x8 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::T;
+  using UnalignedVecU32x8 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::UnalignedT;
 
   // clang-format off
   static constexpr VecU16x32 LANE_SHUFFLE_MASKS[4] = {

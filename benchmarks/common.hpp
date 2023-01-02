@@ -78,29 +78,11 @@ struct AlignedData {
   T* data;
 };
 
-// Convenience macro for unaligned vector types. See comment below for more details.
-#define UNALIGNED __attribute__((aligned(1)))
-
-// We want to do it like this, but it does not work with clang. The alignment information is dropped here, so we need to
-// manually specify it for the type for which we need a different alignment. See https://godbolt.org/z/6339x3vKz
-//
-// We _want_ to do:
-//   template <typename T, size_t VECTOR_SIZE_IN_BYTES, size_t ALIGNMENT = VECTOR_SIZE_IN_BYTES>
-//   using VecT __attribute__((vector_size(VECTOR_SIZE_IN_BYTES), aligned(ALIGNMENT))) = T;
-//
-// We _have_ to do:
-//    template <typename T, size_t VECTOR_SIZE_IN_BYTES>
-//    using VecT __attribute__((vector_size(VECTOR_SIZE_IN_BYTES))) = T;
-//
-// and then specify the (un-)alignment for each type if we need it. The convenience `UNALIGNED` macro can be used.
-//
-//    using VecU8x16 = VecT<uint8_t, 16>;
-//    using UnalignedVecU8x16 __attribute__((aligned(1))) = VecT<uint8_t, 16>;
-// or
-//    using UnalignedVecU8x16 UNALIGNED = VecT<uint8_t, 16>;
-//
-template <typename T, size_t VECTOR_SIZE_IN_BYTES>
-using VecT __attribute__((vector_size(VECTOR_SIZE_IN_BYTES))) = T;
+template <typename ElementT, size_t VECTOR_SIZE_IN_BYTES, size_t ALIGNMENT = VECTOR_SIZE_IN_BYTES>
+struct GccVec {
+  using T __attribute((vector_size(VECTOR_SIZE_IN_BYTES), aligned(ALIGNMENT))) = ElementT;
+  using UnalignedT __attribute((vector_size(VECTOR_SIZE_IN_BYTES), aligned(1))) = ElementT;
+};
 
 /**
  * Clang and GCC have slightly different calls for builtin shuffles, so we need to distinguish between theme here.
