@@ -46,11 +46,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
 
   for (auto _ : state) {
     for (size_t i = 0; i < NUM_ENTRIES; ++i) {
-      benchmark::DoNotOptimize(&bucket);
-      benchmark::DoNotOptimize(lookup_keys.data());
-      benchmark::DoNotOptimize(lookup_fps.data());
-
-      uint64_t value = find_fn(bucket, lookup_keys[i], lookup_fps[i]);
+      const uint64_t value = find_fn(bucket, lookup_keys[i], lookup_fps[i]);
       assert(value != NO_MATCH);
 
       benchmark::DoNotOptimize(value);
@@ -120,7 +116,7 @@ struct x86_find {
     (void)fingerprints;
     (void)key;
     (void)fingerprint;
-    return 0;
+    return 13;
   }
 };
 
