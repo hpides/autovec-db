@@ -200,7 +200,7 @@ struct naive_scalar_hash {
 #endif
   void
   operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
-#if !GCC_COMPILER
+#if CLANG_COMPILER
 #pragma clang loop vectorize(disable)
 #endif
     for (size_t i = 0; i < NUM_KEYS; ++i) {

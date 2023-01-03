@@ -5,11 +5,18 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <string>
 
 #if (defined(__GNUC__) && !defined(__clang__))
 #define GCC_COMPILER 1
 #else
 #define GCC_COMPILER 0
+#endif
+
+#if (defined(__clang__))
+#define CLANG_COMPILER 1
+#else
+#define CLANG_COMPILER 0
 #endif
 
 #ifdef ENABLE_DEBUG_DO
@@ -45,6 +52,7 @@ struct alignas(ALIGN) AlignedArray {
   AlignedArray() {}
 
   std::array<DataT, NUM_ENTRIES> arr;
+
   DataT* data() noexcept { return arr.data(); }
   const DataT* data() const noexcept { return arr.data(); }
   DataT& operator[](size_t i) noexcept { return arr[i]; }
@@ -80,9 +88,16 @@ struct AlignedData {
 
 template <typename ElementT, size_t VECTOR_SIZE_IN_BYTES, size_t ALIGNMENT = VECTOR_SIZE_IN_BYTES>
 struct GccVec {
-  using T __attribute((vector_size(VECTOR_SIZE_IN_BYTES), aligned(ALIGNMENT))) = ElementT;
-  using UnalignedT __attribute((vector_size(VECTOR_SIZE_IN_BYTES), aligned(1))) = ElementT;
+  using T __attribute__((vector_size(VECTOR_SIZE_IN_BYTES), aligned(ALIGNMENT))) = ElementT;
+  using UnalignedT __attribute__((vector_size(VECTOR_SIZE_IN_BYTES), aligned(1))) = ElementT;
 };
+
+#if CLANG_COMPILER
+template <size_t NUM_BITS>
+struct ClangBitmask {
+  using T __attribute__((ext_vector_type(NUM_BITS))) = bool;
+};
+#endif
 
 /**
  * Clang and GCC have slightly different calls for builtin shuffles, so we need to distinguish between theme here.
@@ -110,3 +125,14 @@ template <typename VectorT, typename ElementT = decltype(std::declval<VectorT>()
 inline VectorT broadcast(ElementT value) {
   return value - VectorT{};
 }
+
+// Helpers to allow finding the corresponding uintX_t type from a size at compile time
+// clang-format off
+template <size_t BYTES> struct UnsignedInt;
+// clang reports bit-vectors of less than 8 bits to have sizeof() == 0, see https://github.com/llvm/llvm-project/issues/59788
+template <> struct UnsignedInt<0> { using T = uint8_t; };
+template <> struct UnsignedInt<1> { using T = uint8_t; };
+template <> struct UnsignedInt<2> { using T = uint16_t; };
+template <> struct UnsignedInt<4> { using T = uint32_t; };
+template <> struct UnsignedInt<8> { using T = uint64_t; };
+// clang-format on
