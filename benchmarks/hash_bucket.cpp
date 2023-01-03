@@ -5,6 +5,7 @@
 #include <random>
 
 #include "benchmark/benchmark.h"
+#include "common.hpp"
 
 static constexpr uint64_t NUM_ENTRIES = 15;
 static constexpr uint64_t NO_MATCH = std::numeric_limits<uint64_t>::max();
@@ -45,11 +46,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
 
   for (auto _ : state) {
     for (size_t i = 0; i < NUM_ENTRIES; ++i) {
-      benchmark::DoNotOptimize(&bucket);
-      benchmark::DoNotOptimize(lookup_keys.data());
-      benchmark::DoNotOptimize(lookup_fps.data());
-
-      uint64_t value = find_fn(bucket, lookup_keys[i], lookup_fps[i]);
+      const uint64_t value = find_fn(bucket, lookup_keys[i], lookup_fps[i]);
       assert(value != NO_MATCH);
 
       benchmark::DoNotOptimize(value);
@@ -88,12 +85,8 @@ struct neon_find {
     uint8x16_t fp_vector = vld1q_u8(fingerprints);
 
     // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
-    // TODO: change this back to:
-    //         uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
-    //       and use mask for byte 16
-    uint8x16_t lookup_fp{
-        fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint,
-        fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, 0};
+    vec8x16_t lookup_fp = vmovq_n_u8(fingerprint);
+    lookup_fp[15] = 0;
 
     // Compare fingerprints.
     auto matching_fingerprints = reinterpret_cast<__uint128_t>(vceqq_u8(fp_vector, lookup_fp));
@@ -123,7 +116,7 @@ struct x86_find {
     (void)fingerprints;
     (void)key;
     (void)fingerprint;
-    return 0;
+    return 13;
   }
 };
 
@@ -167,10 +160,8 @@ struct vector_find {
     vec8x16 fp_vector = *reinterpret_cast<vec8x16*>(fingerprints);
 
     // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
-    // TODO: change to 16 byte load + mask
-    vec8x16 lookup_fp{
-        fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint,
-        fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, fingerprint, 0};
+    vec8x16 lookup_fp = broadcast<vec8x16>(fingerprint);
+    lookup_fp[15] = 0;
 
     // Compare fingerprints.
     auto matching_fingerprints = reinterpret_cast<__uint128_t>(fp_vector == lookup_fp);
