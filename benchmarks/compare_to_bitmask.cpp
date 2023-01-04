@@ -152,10 +152,12 @@ struct neon_bitmask {
 
 #include <immintrin.h>
 
-template <typename ElementT_, typename MaskT_ = uint64_t>
+template <typename ElementT_, typename MaskT_, typename InputT_>
 struct x86_128_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
+  using InputT = InputT_;
+
   using VecT = __m128i;
   static constexpr size_t NUM_VECTOR_ELEMENTS = sizeof(VecT) / sizeof(ElementT);
 
@@ -215,10 +217,11 @@ struct x86_128_bitmask {
 };
 
 #if defined(AVX512_AVAILABLE)
-template <typename ElementT_, typename MaskT_ = uint64_t>
+template <typename ElementT_, typename MaskT_, typename InputT_>
 struct x86_512_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
+  using InputT = InputT_;
 
   using VecT = __m512i;
 
