@@ -7,7 +7,10 @@
 #include "benchmark/benchmark.h"
 #include "common.hpp"
 
-template <typename ElementT_, typename MaskT_, typename InputT_>
+template <typename InputT, typename ElementT>
+using DefaultMaskT = typename UnsignedInt<(sizeof(InputT) / sizeof(ElementT) + 7) / 8>::T;
+
+template <typename InputT_, typename ElementT_, typename MaskT_ = DefaultMaskT<InputT_, ElementT_>>
 struct naive_scalar_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
@@ -31,7 +34,7 @@ struct naive_scalar_bitmask {
 };
 
 #if CLANG_COMPILER
-template <size_t VECTOR_BITS, typename ElementT_, typename MaskT_, typename InputT_>
+template <size_t VECTOR_BITS, typename InputT_, typename ElementT_, typename MaskT_ = DefaultMaskT<InputT_, ElementT_>>
 struct clang_vector_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
@@ -55,12 +58,12 @@ struct clang_vector_bitmask {
       static_assert(sizeof(InputT) % sizeof(VecT) == 0);
       constexpr size_t iterations = sizeof(InputT) / sizeof(VecT);
 
-      const VecT* __restrict input1_vec = reinterpret_cast<const VecT*>(input1.data());
-      const VecT* __restrict input2_vec = reinterpret_cast<const VecT*>(input2.data());
+      const auto* __restrict input1_vec = reinterpret_cast<const VecT*>(input1.data());
+      const auto* __restrict input2_vec = reinterpret_cast<const VecT*>(input2.data());
 
       MaskT result = 0;
       for (size_t i = 0; i < iterations; ++i) {
-        MaskVecT subresult_vec = __builtin_convertvector(*(input1_vec + i) == *(input2_vec + i), MaskVecT);
+        MaskVecT subresult_vec = __builtin_convertvector(input1_vec[i] == input2_vec[i], MaskVecT);
         MaskT subresult = reinterpret_cast<SingleComparisonResultT&>(subresult_vec);
         assert(static_cast<unsigned int>(std::countl_zero(subresult)) >= 8 * sizeof(MaskT) - NUM_VECTOR_ELEMENTS);
         const size_t offset = i * NUM_VECTOR_ELEMENTS;
@@ -73,13 +76,13 @@ struct clang_vector_bitmask {
 
 template <size_t VECTOR_BITS>
 struct sized_clang_vector_bitmask {
-  template <typename ElementT_, typename MaskT_, typename InputT_>
-  using Benchmark = clang_vector_bitmask<VECTOR_BITS, ElementT_, MaskT_, InputT_>;
+  template <typename InputT_, typename ElementT_>
+  using Benchmark = clang_vector_bitmask<VECTOR_BITS, InputT_, ElementT_>;
 };
 
 #endif
 
-template <typename ElementT_, typename MaskT_, typename InputT_>
+template <typename InputT_, typename ElementT_, typename MaskT_ = DefaultMaskT<InputT_, ElementT_>>
 struct bitset_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
@@ -100,7 +103,7 @@ struct bitset_bitmask {
   }
 };
 
-template <size_t VECTOR_BITS, typename ElementT_, typename MaskT_ = uint64_t>
+template <size_t VECTOR_BITS, typename InputT_, typename ElementT_, typename MaskT_ = DefaultMaskT<InputT_, ElementT_>>
 struct gcc_vector_bitmask {
   // TODO
 };
@@ -108,7 +111,7 @@ struct gcc_vector_bitmask {
 #if defined(__aarch64__)
 #include <arm_neon.h>
 
-template <typename ElementT_, typename MaskT_, typename InputT_>
+template <typename InputT_, typename ElementT_, typename MaskT_ = DefaultMaskT<InputT_, ElementT_>>
 struct neon_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
@@ -140,7 +143,7 @@ struct neon_bitmask {
     } else if constexpr (sizeof(ElementT) == 8) {
       using VecT = uint64x2_t;
       constexpr VecT mask = {1, 2};
-      auto matches = vceqq_u32(reinterpret_cast<const VecT&>(input1), reinterpret_cast<const VecT&>(input2));
+      auto matches = vceqq_u64(reinterpret_cast<const VecT&>(input1), reinterpret_cast<const VecT&>(input2));
       return vaddvq_u64(vandq_u64(matches, mask));
     }
   }
@@ -152,7 +155,7 @@ struct neon_bitmask {
 
 #include <immintrin.h>
 
-template <typename ElementT_, typename MaskT_, typename InputT_>
+template <typename InputT_, typename ElementT_, typename MaskT_ = DefaultMaskT<InputT_, ElementT_>>
 struct x86_128_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
@@ -217,7 +220,7 @@ struct x86_128_bitmask {
 };
 
 #if defined(AVX512_AVAILABLE)
-template <typename ElementT_, typename MaskT_, typename InputT_>
+template <typename InputT_, typename ElementT_, typename MaskT_ = DefaultMaskT<InputT_, ElementT_>>
 struct x86_512_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
@@ -265,13 +268,14 @@ void BM_compare_to_bitmask(benchmark::State& state) {
   }
 
   BenchFunc bench_fn{};
+  constexpr size_t NUM_MASK_BITS = sizeof(typename BenchFunc::MaskT) * 8;
 
   auto naive_result =
-      naive_scalar_bitmask<typename BenchFunc::ElementT, typename BenchFunc::MaskT, InputT>{}(input1, input2);
+      naive_scalar_bitmask<InputT, typename BenchFunc::ElementT, typename BenchFunc::MaskT>{}(input1, input2);
+  TRACE_DO(std::cout << "Naive: " << std::bitset<NUM_MASK_BITS>(naive_result) << std::endl;);
   auto specialized_result = bench_fn(input1, input2);
 
   if (naive_result != specialized_result) {
-    constexpr size_t NUM_MASK_BITS = sizeof(typename BenchFunc::MaskT) * 8;
     throw std::runtime_error("Bad mask computation. Expected: " + std::bitset<NUM_MASK_BITS>(naive_result).to_string() +
                              " but got: " + std::bitset<NUM_MASK_BITS>(specialized_result).to_string());
   }
@@ -290,11 +294,11 @@ using Input64Byte = AlignedArray<uint8_t, 64, 64>;
 
 #define BM_ARGS Repetitions(1)
 
-#define BENCHMARK_WITH_INPUT(bm, input)                                    \
-  BENCHMARK(BM_compare_to_bitmask<bm<uint8_t, uint16_t, input>>)->BM_ARGS; \
-  BENCHMARK(BM_compare_to_bitmask<bm<uint16_t, uint8_t, input>>)->BM_ARGS; \
-  BENCHMARK(BM_compare_to_bitmask<bm<uint32_t, uint8_t, input>>)->BM_ARGS; \
-  BENCHMARK(BM_compare_to_bitmask<bm<uint64_t, uint8_t, input>>)->BM_ARGS
+#define BENCHMARK_WITH_INPUT(bm, input)                           \
+  BENCHMARK(BM_compare_to_bitmask<bm<input, uint8_t>>)->BM_ARGS;  \
+  BENCHMARK(BM_compare_to_bitmask<bm<input, uint16_t>>)->BM_ARGS; \
+  BENCHMARK(BM_compare_to_bitmask<bm<input, uint32_t>>)->BM_ARGS; \
+  BENCHMARK(BM_compare_to_bitmask<bm<input, uint64_t>>)->BM_ARGS
 
 #define BITMASK_BENCHMARK(bm)            \
   BENCHMARK_WITH_INPUT(bm, Input16Byte); \
@@ -305,20 +309,37 @@ BITMASK_BENCHMARK(bitset_bitmask);
 
 #if CLANG_COMPILER
 // TODO: Currently broken. Sub-Byte bool-vectors seem to be broken in many ways.
-// BITMASK_BENCHMARK(sized_clang_vector_bitmask<128>::Benchmark);
-BENCHMARK_WITH_INPUT(sized_clang_vector_bitmask<256>::Benchmark, Input64Byte);
-BENCHMARK_WITH_INPUT(sized_clang_vector_bitmask<512>::Benchmark, Input64Byte);
+BITMASK_BENCHMARK(sized_clang_vector_bitmask<128>::Benchmark);
+
+BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<256>::Benchmark<Input64Byte, uint8_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<256>::Benchmark<Input64Byte, uint16_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<256>::Benchmark<Input64Byte, uint32_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<256>::Benchmark<Input64Byte, uint64_t>>)->BM_ARGS;
+
+BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<512>::Benchmark<Input64Byte, uint8_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<512>::Benchmark<Input64Byte, uint16_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<512>::Benchmark<Input64Byte, uint32_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<512>::Benchmark<Input64Byte, uint64_t>>)->BM_ARGS;
 #endif
 
 #if defined(__aarch64__)
-BITMASK_BENCHMARK(neon_bitmask);
+// TODO: Replace with when 64 Byt input is supported
+// BITMASK_BENCHMARK(neon_bitmask);
+
+BENCHMARK(BM_compare_to_bitmask<neon_bitmask<Input16Byte, uint8_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<neon_bitmask<Input16Byte, uint16_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<neon_bitmask<Input16Byte, uint32_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<neon_bitmask<Input16Byte, uint64_t>>)->BM_ARGS;
 #endif
 
 #if defined(__x86_64__)
 BITMASK_BENCHMARK(x86_128_bitmask);
 
 #if defined(AVX512_AVAILABLE)
-BITMASK_BENCHMARK(x86_512_bitmask);
+BENCHMARK(BM_compare_to_bitmask<x86_512_bitmask<Input64Byte, uint8_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<x86_512_bitmask<Input64Byte, uint16_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<x86_512_bitmask<Input64Byte, uint32_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<x86_512_bitmask<Input64Byte, uint64_t>>)->BM_ARGS;
 #endif
 
 #endif
