@@ -9,7 +9,7 @@
 
 using InputT = AlignedArray<uint8_t, 64, 64>;
 
-template <typename ElementT_ = uint8_t, typename MaskT_ = uint64_t>
+template <typename ElementT_, typename MaskT_ = uint64_t>
 struct naive_scalar_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
@@ -32,7 +32,7 @@ struct naive_scalar_bitmask {
 };
 
 #if CLANG_COMPILER
-template <size_t VECTOR_BITS, typename ElementT_ = uint8_t, typename MaskT_ = uint64_t>
+template <size_t VECTOR_BITS, typename ElementT_, typename MaskT_ = uint64_t>
 struct clang_vector_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
@@ -62,8 +62,7 @@ struct clang_vector_bitmask {
       for (size_t i = 0; i < iterations; ++i) {
         MaskVecT subresult_vec = __builtin_convertvector(*(input1_vec + i) == *(input2_vec + i), MaskVecT);
         MaskT subresult = reinterpret_cast<SingleComparisonResultT&>(subresult_vec);
-        assert(static_cast<unsigned int>(std::countl_zero(subresult)) >=
-               8 * (sizeof(MaskT) - sizeof(SingleComparisonResultT)));
+        assert(static_cast<unsigned int>(std::countl_zero(subresult)) >= 8 * sizeof(MaskT) - NUM_VECTOR_ELEMENTS);
         const size_t offset = i * NUM_VECTOR_ELEMENTS;
         result |= subresult << offset;
       }
@@ -73,7 +72,7 @@ struct clang_vector_bitmask {
 };
 #endif
 
-template <typename ElementT_ = uint8_t, typename MaskT_ = uint64_t>
+template <typename ElementT_, typename MaskT_ = uint64_t>
 struct bitset_bitmask {
   using ElementT = ElementT_;
   using MaskT = MaskT_;
@@ -125,23 +124,42 @@ struct x86_128_bitmask {
     for (size_t i = 0; i < iterations; ++i) {
       VecT vector_compare_result = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
-          return _mm_cmpeq_epi8(*input1_typed, *input2_typed);
+          return _mm_cmpeq_epi8(input1_typed[i], input2_typed[i]);
         } else if constexpr (sizeof(ElementT) == 2) {
-          return _mm_cmpeq_epi16(*input1_typed, *input2_typed);
+          return _mm_cmpeq_epi16(input1_typed[i], input2_typed[i]);
         } else if constexpr (sizeof(ElementT) == 4) {
-          return _mm_cmpeq_epi32(*input1_typed, *input2_typed);
+          return _mm_cmpeq_epi32(input1_typed[i], input2_typed[i]);
         } else if constexpr (sizeof(ElementT) == 8) {
-          return _mm_cmpeq_epi64(*input1_typed, *input2_typed);
+          return _mm_cmpeq_epi64(input1_typed[i], input2_typed[i]);
         }
       }();
 
-      // TODO: vector_compare_result consists of elements that are either all 0-bits or all 1-bits.
-      // We need to compress this down.
-      (void)vector_compare_result;
-      MaskT subresult = 0;
+      MaskT subresult = [&]() {
+        if constexpr (sizeof(ElementT) == 1) {
+          return _mm_movemask_epi8(vector_compare_result);
+        } else if constexpr (sizeof(ElementT) == 2) {
+          // Moves all upper halves of the 2B elements to the bytes (0, 8), clears upper bytes.
+          __m128i upper_byte_shuffle_mask = _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 15, 13, 11, 9, 7, 5, 3, 1);
+          __m128i upper_bytes_shuffled = _mm_shuffle_epi8(vector_compare_result, upper_byte_shuffle_mask);
 
-      assert(static_cast<unsigned int>(std::countl_zero(subresult)) >=
-             8 * (sizeof(MaskT) - sizeof(vector_compare_result)));
+          // Moves all lower halves of the 2B elements to the bytes (0, 8), clears upper bytes.
+          __m128i lower_byte_shuffle_mask = _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0);
+          __m128i lower_bytes_shuffled = _mm_shuffle_epi8(vector_compare_result, lower_byte_shuffle_mask);
+
+          // AND them together to get 2B-value equality
+          __m128i int16_equality_vec = _mm_and_si128(upper_bytes_shuffled, lower_bytes_shuffled);
+
+          // extract to integer bitmask
+          return _mm_movemask_epi8(int16_equality_vec);
+
+        } else if constexpr (sizeof(ElementT) == 4) {
+          return _mm_movemask_ps(reinterpret_cast<__m128>(vector_compare_result));
+        } else if constexpr (sizeof(ElementT) == 8) {
+          return _mm_movemask_pd(reinterpret_cast<__m128d>(vector_compare_result));
+        }
+      }();
+
+      assert(static_cast<unsigned int>(std::countl_zero(subresult)) >= 8 * sizeof(MaskT) - NUM_VECTOR_ELEMENTS);
 
       const size_t offset = i * NUM_VECTOR_ELEMENTS;
       result |= subresult << offset;
@@ -212,30 +230,38 @@ void BM_compare_to_bitmask(benchmark::State& state) {
 
 #define BM_ARGS Repetitions(1)
 
-BENCHMARK(BM_compare_to_bitmask<naive_scalar_bitmask<>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<naive_scalar_bitmask<uint8_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<naive_scalar_bitmask<uint16_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<naive_scalar_bitmask<uint32_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<naive_scalar_bitmask<uint64_t>>)->BM_ARGS;
 
-BENCHMARK(BM_compare_to_bitmask<bitset_bitmask<>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<bitset_bitmask<uint8_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<bitset_bitmask<uint16_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<bitset_bitmask<uint32_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<bitset_bitmask<uint64_t>>)->BM_ARGS;
 
 #if CLANG_COMPILER
-BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<128>>)->BM_ARGS;
-BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<256>>)->BM_ARGS;
-BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<512>>)->BM_ARGS;
-
+BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<128, uint8_t>>)->BM_ARGS;
 BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<128, uint16_t>>)->BM_ARGS;
-BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<256, uint16_t>>)->BM_ARGS;
-BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<512, uint16_t>>)->BM_ARGS;
-
 // TODO: Currently broken. Sub-Byte bool-vectors seem to be broken in many ways.
 // BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<128, uint32_t>>)->BM_ARGS;
+
+BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<256, uint8_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<256, uint16_t>>)->BM_ARGS;
 BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<256, uint32_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<256, uint64_t>>)->BM_ARGS;
+
+BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<512, uint8_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<512, uint16_t>>)->BM_ARGS;
 BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<512, uint32_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<clang_vector_bitmask<512, uint64_t>>)->BM_ARGS;
 #endif
 
 #if defined(__x86_64__)
-// BENCHMARK(BM_compare_to_bitmask<x86_128_bitmask<uint8_t>>)->BM_ARGS;
-// BENCHMARK(BM_compare_to_bitmask<x86_128_bitmask<uint16_t>>)->BM_ARGS;
-// BENCHMARK(BM_compare_to_bitmask<x86_128_bitmask<uint32_t>>)->BM_ARGS;
-// BENCHMARK(BM_compare_to_bitmask<x86_128_bitmask<uint64_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<x86_128_bitmask<uint8_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<x86_128_bitmask<uint16_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<x86_128_bitmask<uint32_t>>)->BM_ARGS;
+BENCHMARK(BM_compare_to_bitmask<x86_128_bitmask<uint64_t>>)->BM_ARGS;
 
 #if defined(AVX512_AVAILABLE)
 BENCHMARK(BM_compare_to_bitmask<x86_512_bitmask<uint8_t>>)->BM_ARGS;
