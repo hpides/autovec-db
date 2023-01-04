@@ -52,8 +52,13 @@ struct clang_vector_bitmask {
     if constexpr (sizeof(VecT) == sizeof(InputT)) {
       const auto* __restrict input1_vec = reinterpret_cast<const VecT*>(input1.data());
       const auto* __restrict input2_vec = reinterpret_cast<const VecT*>(input2.data());
-      const MaskVecT result = __builtin_convertvector(*input1_vec == *input2_vec, MaskVecT);
-      return reinterpret_cast<const MaskT&>(result);
+      const MaskVecT result_vec = __builtin_convertvector(*input1_vec == *input2_vec, MaskVecT);
+
+      MaskT result = reinterpret_cast<const MaskT&>(result_vec);
+      if constexpr (NUM_VECTOR_ELEMENTS != 8 * sizeof(result)) {
+        result &= (1 << NUM_VECTOR_ELEMENTS) - 1;
+      }
+      return result;
     } else {
       static_assert(sizeof(InputT) % sizeof(VecT) == 0);
       constexpr size_t iterations = sizeof(InputT) / sizeof(VecT);
@@ -65,6 +70,9 @@ struct clang_vector_bitmask {
       for (size_t i = 0; i < iterations; ++i) {
         MaskVecT subresult_vec = __builtin_convertvector(input1_vec[i] == input2_vec[i], MaskVecT);
         MaskT subresult = reinterpret_cast<SingleComparisonResultT&>(subresult_vec);
+        if constexpr (NUM_VECTOR_ELEMENTS != 8 * sizeof(SingleComparisonResultT)) {
+          subresult &= (1 << NUM_VECTOR_ELEMENTS) - 1;
+        }
         assert(static_cast<unsigned int>(std::countl_zero(subresult)) >= 8 * sizeof(MaskT) - NUM_VECTOR_ELEMENTS);
         const size_t offset = i * NUM_VECTOR_ELEMENTS;
         result |= subresult << offset;
