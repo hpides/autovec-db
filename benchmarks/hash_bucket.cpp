@@ -75,8 +75,6 @@ uint64_t find_key_match(HashBucket& bucket, uint64_t key, uint64_t matches, size
 }
 
 #if defined(__aarch64__)
-#include <arm_neon.h>
-
 struct neon_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
     uint8_t* fingerprints = bucket.fingerprints.data();

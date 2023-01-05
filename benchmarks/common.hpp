@@ -136,3 +136,18 @@ template <> struct UnsignedInt<2> { using T = uint16_t; };
 template <> struct UnsignedInt<4> { using T = uint32_t; };
 template <> struct UnsignedInt<8> { using T = uint64_t; };
 // clang-format on
+
+#if defined(__aarch64__)
+#include <arm_neon.h>
+// clang-format off
+template <size_t ELEMENT_BYTES> struct NeonVecT;
+template <> struct NeonVecT<1> { using T = uint8x16_t; };
+template <> struct NeonVecT<2> { using T = uint16x8_t; };
+template <> struct NeonVecT<4> { using T = uint32x4_t; };
+template <> struct NeonVecT<8> { using T = uint64x2_t; };
+// clang-format on
+#endif
+
+#if defined(__x86_64__)
+#include <immintrin.h>
+#endif

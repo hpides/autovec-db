@@ -74,8 +74,6 @@ void BM_hashing(benchmark::State& state) {
 }
 
 #if defined(__aarch64__)
-#include <arm_neon.h>
-
 struct neon_hash {
   uint64x2_t multiply(uint64x2_t a, uint64x2_t b) {
     // b0Hi, b0Lo, b1Hi, b1Lo
@@ -122,8 +120,6 @@ struct neon_hash {
 };
 
 #elif defined(__x86_64__)
-
-#include <immintrin.h>
 struct x86_128_hash {
   using VecT = __m128i;
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
