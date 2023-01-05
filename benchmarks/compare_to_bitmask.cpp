@@ -125,34 +125,54 @@ struct neon_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
 
-  static constexpr size_t NUM_VECTOR_ELEMENTS = sizeof(poly128_t) / sizeof(ElementT);
+  static constexpr size_t NUM_VECTOR_BYTES = 16;
+  static constexpr size_t NUM_VECTOR_ELEMENTS = NUM_VECTOR_BYTES / sizeof(ElementT);
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    if constexpr (sizeof(ElementT) == 1) {
-      static_assert(sizeof(MaskT) >= 2, "Need at least 16 bits for uint8.");
-      using VecT = uint8x16_t;
-      constexpr VecT mask = {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128};
+    auto get_sub_mask = [&](auto in1, auto in2) {
+      if constexpr (sizeof(ElementT) == 1) {
+        static_assert(sizeof(MaskT) >= 2, "Need at least 16 bits for uint8.");
+        using VecT = uint8x16_t;
+        constexpr VecT mask = {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128};
+        MaskT result = 0;
+        VecT matches = vceqq_u8(reinterpret_cast<const VecT&>(in1), reinterpret_cast<const VecT&>(in2));
+        VecT masked_matches = vandq_u8(matches, mask);
+        result |= vaddv_u8(vget_low_u8(masked_matches));
+        result |= static_cast<MaskT>(vaddv_u8(vget_high_u8(masked_matches))) << 8;
+        return result;
+      } else if constexpr (sizeof(ElementT) == 2) {
+        using VecT = uint16x8_t;
+        constexpr VecT mask = {1, 2, 4, 8, 16, 32, 64, 128};
+        auto matches = vceqq_u16(reinterpret_cast<const VecT&>(in1), reinterpret_cast<const VecT&>(in2));
+        return vaddvq_u16(vandq_u16(matches, mask));
+      } else if constexpr (sizeof(ElementT) == 4) {
+        using VecT = uint32x4_t;
+        constexpr VecT mask = {1, 2, 4, 8};
+        auto matches = vceqq_u32(reinterpret_cast<const VecT&>(in1), reinterpret_cast<const VecT&>(in2));
+        return vaddvq_u32(vandq_u32(matches, mask));
+      } else if constexpr (sizeof(ElementT) == 8) {
+        using VecT = uint64x2_t;
+        constexpr VecT mask = {1, 2};
+        auto matches = vceqq_u64(reinterpret_cast<const VecT&>(in1), reinterpret_cast<const VecT&>(in2));
+        return vaddvq_u64(vandq_u64(matches, mask));
+      }
+    };
+
+    if constexpr (sizeof(InputT) == NUM_VECTOR_BYTES) {
+      return get_sub_mask(input1, input2);
+    } else {
+      static_assert(sizeof(InputT) % NUM_VECTOR_BYTES == 0);
+      const auto* __restrict input1_vec = reinterpret_cast<const uint8x16_t*>(input1.data());
+      const auto* __restrict input2_vec = reinterpret_cast<const uint8x16_t*>(input2.data());
+
+      constexpr size_t iterations = sizeof(InputT) / NUM_VECTOR_BYTES;
       MaskT result = 0;
-      VecT matches = vceqq_u8(reinterpret_cast<const VecT&>(input1), reinterpret_cast<const VecT&>(input2));
-      VecT masked_matches = vandq_u8(matches, mask);
-      result |= vaddv_u8(vget_low_u8(masked_matches));
-      result |= static_cast<MaskT>(vaddv_u8(vget_high_u8(masked_matches))) << 8;
+      for (size_t i = 0; i < iterations; ++i) {
+        MaskT sub_mask = get_sub_mask(input1_vec[i], input2_vec[i]);
+        const size_t offset = i * NUM_VECTOR_ELEMENTS;
+        result |= sub_mask << offset;
+      }
       return result;
-    } else if constexpr (sizeof(ElementT) == 2) {
-      using VecT = uint16x8_t;
-      constexpr VecT mask = {1, 2, 4, 8, 16, 32, 64, 128};
-      auto matches = vceqq_u16(reinterpret_cast<const VecT&>(input1), reinterpret_cast<const VecT&>(input2));
-      return vaddvq_u16(vandq_u16(matches, mask));
-    } else if constexpr (sizeof(ElementT) == 4) {
-      using VecT = uint32x4_t;
-      constexpr VecT mask = {1, 2, 4, 8};
-      auto matches = vceqq_u32(reinterpret_cast<const VecT&>(input1), reinterpret_cast<const VecT&>(input2));
-      return vaddvq_u32(vandq_u32(matches, mask));
-    } else if constexpr (sizeof(ElementT) == 8) {
-      using VecT = uint64x2_t;
-      constexpr VecT mask = {1, 2};
-      auto matches = vceqq_u64(reinterpret_cast<const VecT&>(input1), reinterpret_cast<const VecT&>(input2));
-      return vaddvq_u64(vandq_u64(matches, mask));
     }
   }
 };
@@ -331,13 +351,7 @@ BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<512>::Benchmark<Input
 #endif
 
 #if defined(__aarch64__)
-// TODO: Replace with when 64 Byt input is supported
-// BITMASK_BENCHMARK(neon_bitmask);
-
-BENCHMARK(BM_compare_to_bitmask<neon_bitmask<Input16Byte, uint8_t>>)->BM_ARGS;
-BENCHMARK(BM_compare_to_bitmask<neon_bitmask<Input16Byte, uint16_t>>)->BM_ARGS;
-BENCHMARK(BM_compare_to_bitmask<neon_bitmask<Input16Byte, uint32_t>>)->BM_ARGS;
-BENCHMARK(BM_compare_to_bitmask<neon_bitmask<Input16Byte, uint64_t>>)->BM_ARGS;
+BITMASK_BENCHMARK(neon_bitmask);
 #endif
 
 #if defined(__x86_64__)
