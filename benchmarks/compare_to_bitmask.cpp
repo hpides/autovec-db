@@ -336,7 +336,6 @@ BITMASK_BENCHMARK(naive_scalar_bitmask);
 BITMASK_BENCHMARK(bitset_bitmask);
 
 #if CLANG_COMPILER
-// TODO: Currently broken. Sub-Byte bool-vectors seem to be broken in many ways.
 BITMASK_BENCHMARK(sized_clang_vector_bitmask<128>::Benchmark);
 
 BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<256>::Benchmark<Input64Byte, uint8_t>>)->BM_ARGS;
