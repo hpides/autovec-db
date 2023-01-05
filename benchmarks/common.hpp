@@ -142,7 +142,6 @@ inline void store(void* ptr, VectorT value) {
 template <typename VectorT>
 inline void unaligned_store(void* ptr, VectorT value) {
   using UnalignedVector __attribute__((aligned(1))) = VectorT;
-  //  *reinterpret_cast<UnalignedVector*>(ptr) = reinterpret_cast<UnalignedVector&>(value);
   *reinterpret_cast<UnalignedVector*>(ptr) = value;
 }
 
