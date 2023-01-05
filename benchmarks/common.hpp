@@ -81,6 +81,7 @@ struct AlignedData {
 
   // Docs for assume_aligned: https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p1007r3.pdf
   [[nodiscard]] T* aligned_data() { return std::assume_aligned<ALIGN>(data); }
+  [[nodiscard]] const T* aligned_data() const { return std::assume_aligned<ALIGN>(data); }
 
  private:
   T* data;
