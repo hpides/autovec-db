@@ -100,6 +100,8 @@ struct ClangBitmask {
 };
 #endif
 
+namespace simd {
+
 /**
  * Clang and GCC have slightly different calls for builtin shuffles, so we need to distinguish between theme here.
  * GCC has __builtin_shuffle and __builtin_shufflevector (the latter only since GCC12), clang only has
@@ -113,8 +115,8 @@ struct ClangBitmask {
  *     https://github.com/llvm/llvm-project/blob/ef992b60798b6cd2c50b25351bfc392e319896b7/clang/lib/CodeGen/CGExprScalar.cpp#L1645-L1678
  *   you see that the second argument (vec2 in the documentation) can actually be a runtime mask.
  */
-template <typename VectorT>
-inline VectorT shuffle_vector(VectorT vec, VectorT mask) {
+template <typename VectorT, typename MaskT>
+inline VectorT shuffle_vector(VectorT vec, MaskT mask) {
 #if GCC_COMPILER
   return __builtin_shuffle(vec, mask);
 #else
@@ -126,6 +128,25 @@ template <typename VectorT, typename ElementT = decltype(std::declval<VectorT>()
 inline VectorT broadcast(ElementT value) {
   return value - VectorT{};
 }
+
+template <typename VectorT>
+inline VectorT load(const void* ptr) {
+  return *reinterpret_cast<const VectorT*>(ptr);
+}
+
+template <typename VectorT>
+inline void store(void* ptr, VectorT value) {
+  *reinterpret_cast<VectorT*>(ptr) = value;
+}
+
+template <typename VectorT>
+inline void unaligned_store(void* ptr, VectorT value) {
+  using UnalignedVector __attribute__((aligned(1))) = VectorT;
+  //  *reinterpret_cast<UnalignedVector*>(ptr) = reinterpret_cast<UnalignedVector&>(value);
+  *reinterpret_cast<UnalignedVector*>(ptr) = value;
+}
+
+}  // namespace simd
 
 // Helpers to allow finding the corresponding uintX_t type from a size at compile time
 // clang-format off
