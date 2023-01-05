@@ -320,7 +320,7 @@ void BM_compare_to_bitmask(benchmark::State& state) {
 using Input16Byte = AlignedArray<uint8_t, 16, 16>;
 using Input64Byte = AlignedArray<uint8_t, 64, 64>;
 
-#define BM_ARGS Repetitions(1)
+#define BM_ARGS Unit(benchmark::kNanosecond)
 
 #define BENCHMARK_WITH_INPUT(bm, input)                           \
   BENCHMARK(BM_compare_to_bitmask<bm<input, uint8_t>>)->BM_ARGS;  \
@@ -328,16 +328,31 @@ using Input64Byte = AlignedArray<uint8_t, 64, 64>;
   BENCHMARK(BM_compare_to_bitmask<bm<input, uint32_t>>)->BM_ARGS; \
   BENCHMARK(BM_compare_to_bitmask<bm<input, uint64_t>>)->BM_ARGS
 
-#define BITMASK_BENCHMARK(bm)            \
-  BENCHMARK_WITH_INPUT(bm, Input16Byte); \
-  BENCHMARK_WITH_INPUT(bm, Input64Byte)
-
-BITMASK_BENCHMARK(naive_scalar_bitmask);
-BITMASK_BENCHMARK(bitset_bitmask);
+/////////////////////////
+///   16 Byte Input   ///
+/////////////////////////
+BENCHMARK_WITH_INPUT(naive_scalar_bitmask, Input16Byte);
+BENCHMARK_WITH_INPUT(bitset_bitmask, Input16Byte);
 
 #if CLANG_COMPILER
-BITMASK_BENCHMARK(sized_clang_vector_bitmask<128>::Benchmark);
+BENCHMARK_WITH_INPUT(sized_clang_vector_bitmask<128>::Benchmark, Input16Byte);
+#endif
 
+#if defined(__aarch64__)
+BENCHMARK_WITH_INPUT(neon_bitmask, Input16Byte);
+#endif
+
+#if defined(__x86_64__)
+BENCHMARK_WITH_INPUT(x86_128_bitmask, Input16Byte);
+#endif
+
+/////////////////////////
+///   64 Byte Input   ///
+/////////////////////////
+BENCHMARK_WITH_INPUT(naive_scalar_bitmask, Input64Byte);
+BENCHMARK_WITH_INPUT(bitset_bitmask, Input64Byte);
+
+#if CLANG_COMPILER
 BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<256>::Benchmark<Input64Byte, uint8_t>>)->BM_ARGS;
 BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<256>::Benchmark<Input64Byte, uint16_t>>)->BM_ARGS;
 BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<256>::Benchmark<Input64Byte, uint32_t>>)->BM_ARGS;
@@ -350,19 +365,18 @@ BENCHMARK(BM_compare_to_bitmask<sized_clang_vector_bitmask<512>::Benchmark<Input
 #endif
 
 #if defined(__aarch64__)
-BITMASK_BENCHMARK(neon_bitmask);
+BENCHMARK_WITH_INPUT(neon_bitmask, Input64Byte);
 #endif
 
 #if defined(__x86_64__)
-BITMASK_BENCHMARK(x86_128_bitmask);
+BENCHMARK_WITH_INPUT(x86_128_bitmask, Input64Byte);
+#endif
 
 #if defined(AVX512_AVAILABLE)
 BENCHMARK(BM_compare_to_bitmask<x86_512_bitmask<Input64Byte, uint8_t>>)->BM_ARGS;
 BENCHMARK(BM_compare_to_bitmask<x86_512_bitmask<Input64Byte, uint16_t>>)->BM_ARGS;
 BENCHMARK(BM_compare_to_bitmask<x86_512_bitmask<Input64Byte, uint32_t>>)->BM_ARGS;
 BENCHMARK(BM_compare_to_bitmask<x86_512_bitmask<Input64Byte, uint64_t>>)->BM_ARGS;
-#endif
-
 #endif
 
 BENCHMARK_MAIN();
