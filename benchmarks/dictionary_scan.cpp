@@ -7,18 +7,18 @@
 //
 //// RANDOM DUMP FROM godbolt: https://godbolt.org/z/acTbK3M7o
 //
-//using Vec64x8 __attribute__((vector_size(64))) = uint64_t;
-//using Vec32x16 __attribute__((vector_size(64))) = uint32_t;
+// using Vec64x8 __attribute__((vector_size(64))) = uint64_t;
+// using Vec32x16 __attribute__((vector_size(64))) = uint32_t;
 //
-//using Vec8x8 __attribute__((vector_size(8))) = uint8_t;
-//using Vec8x16 __attribute__((vector_size(16))) = uint8_t;
+// using Vec8x8 __attribute__((vector_size(8))) = uint8_t;
+// using Vec8x16 __attribute__((vector_size(16))) = uint8_t;
 //
-//using Mask8 __attribute__((ext_vector_type(8))) = bool;
-//using Mask16 __attribute__((ext_vector_type(16))) = bool;
+// using Mask8 __attribute__((ext_vector_type(8))) = bool;
+// using Mask16 __attribute__((ext_vector_type(16))) = bool;
 //
-//extern std::array<Vec8x8, 256> shuffle_mask_8_entries;
+// extern std::array<Vec8x8, 256> shuffle_mask_8_entries;
 //
-//Vec64x8 shuffle_8(Vec64x8 dict_keys, uint64_t val) {
+// Vec64x8 shuffle_8(Vec64x8 dict_keys, uint64_t val) {
 //  auto matches = dict_keys == val;
 //  auto mask = __builtin_convertvector(matches, Mask8);
 //  uint8_t mask_primitive;
@@ -27,7 +27,7 @@
 //  return __builtin_shufflevector(dict_keys, shuffle_mask);
 //}
 //
-//Vec32x16 only_shuffle_16(Vec32x16 values, uint16_t mask_primitive) {
+// Vec32x16 only_shuffle_16(Vec32x16 values, uint16_t mask_primitive) {
 //  uint8_t lo_mask = mask_primitive;
 //  uint8_t hi_mask = mask_primitive >> 8;
 //
@@ -46,7 +46,7 @@
 //  return __builtin_shufflevector(values, shuffle_mask);
 //}
 //
-//void compressed_write(Vec32x16 values, uint32_t val, uint32_t* out) {
+// void compressed_write(Vec32x16 values, uint32_t val, uint32_t* out) {
 //  auto matches = values == val;
 //  auto mask = __builtin_convertvector(matches, Mask16);
 //  uint16_t mask_primitive = reinterpret_cast<uint16_t&>(mask);
@@ -55,7 +55,7 @@
 //  out += std::popcount(mask_primitive);
 //}
 //
-//Vec32x16 shuffle_16(Vec32x16 dict_keys, uint32_t val) {
+// Vec32x16 shuffle_16(Vec32x16 dict_keys, uint32_t val) {
 //  auto matches = dict_keys == val;
 //  auto mask = __builtin_convertvector(matches, Mask16);
 //  uint16_t mask_primitive = reinterpret_cast<uint16_t&>(mask);
@@ -78,7 +78,7 @@
 //  return __builtin_shufflevector(dict_keys, reinterpret_cast<Vec8x16&>(shuffle_mask));
 //}
 //
-//Vec32x16 shuffle_16_old(Vec32x16 dict_keys, uint32_t val) {
+// Vec32x16 shuffle_16_old(Vec32x16 dict_keys, uint32_t val) {
 //  auto matches = dict_keys == val;
 //  auto mask = __builtin_convertvector(matches, Mask16);
 //  uint16_t mask_primitive = reinterpret_cast<uint16_t&>(mask);
@@ -100,7 +100,7 @@
 //  // return __builtin_shufflevector(dict_keys, matches); // This is most likely wrong
 //}
 //
-//uint16_t get_mask(Vec32x16 matches) {
+// uint16_t get_mask(Vec32x16 matches) {
 //  // TODO: check with GCC
 //  std::bitset<16> bitset{};
 //  for (size_t i = 0; i < 16; ++i) {
@@ -130,16 +130,16 @@
 //// This only needs to work with GCC. Clang has the direct mask available.
 //// This still looks bad on ARM :/
 //// TODO: check that it is correct
-//uint16_t get_mask_and_add(Vec32x16 matches) {
-//  constexpr Vec32x16 and_mask = {// Order does not seem to make a difference here
-//                                 // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768
-//                                 32768, 16384, 8192, 4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1};
+// uint16_t get_mask_and_add(Vec32x16 matches) {
+//   constexpr Vec32x16 and_mask = {// Order does not seem to make a difference here
+//                                  // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768
+//                                  32768, 16384, 8192, 4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1};
 //
-//  auto single_bits = matches & and_mask;
-//  alignas(64) std::array<uint32_t, 16> single_bit_array;
-//  std::memcpy(&single_bit_array, &single_bits, sizeof(single_bit_array));
-//  return std::accumulate(single_bit_array.begin(), single_bit_array.end(), 0);
-//}
+//   auto single_bits = matches & and_mask;
+//   alignas(64) std::array<uint32_t, 16> single_bit_array;
+//   std::memcpy(&single_bit_array, &single_bits, sizeof(single_bit_array));
+//   return std::accumulate(single_bit_array.begin(), single_bit_array.end(), 0);
+// }
 
 /////////////////////////////
 /////////////////////////////
@@ -148,7 +148,6 @@
 #include <cstdint>
 #include <numeric>
 #include <random>
-#include <ranges>
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
@@ -159,6 +158,7 @@ using DictEntry = uint32_t;
 using DictColumn = AlignedData<DictEntry, 64>;
 using MatchingRows = AlignedData<RowId, 64>;
 
+// TODO: check this comment
 // Must be a multiple of 16 for 512 Bit processing.
 static constexpr size_t NUM_ROWS = 16;
 static constexpr size_t NUM_UNIQUE_VALUES = 8;
@@ -170,7 +170,7 @@ struct naive_scalar_scan {
 
     RowId num_matching_rows = 0;
     for (RowId row = 0; row < NUM_ROWS; ++row) {
-      if (column_data[row] == filter_val) {
+      if (column_data[row] < filter_val) {
         output[num_matching_rows++] = row;
       }
     }
@@ -208,6 +208,16 @@ void BM_dictionary_scan(benchmark::State& state) {
   DictColumn column{NUM_ROWS};
   MatchingRows matching_rows{NUM_ROWS};
 
+  static_assert(NUM_ROWS % NUM_UNIQUE_VALUES == 0, "Number of rows must be a multiple of num unique values.");
+  const int64_t input_percentage = state.range(0);
+  const auto percentage_to_pass_filter = static_cast<double>(input_percentage) / 100;
+
+  // Our filter value comparison is `row < filter_value`, so we can control the selectivity as follows:
+  //   For percentage =   0, the filter value is                     0, i.e., no values will match.
+  //   For percentage =  50, the filter value is NUM_UNIQUE_VALUES / 2, i.e., 50% of all values will match.
+  //   For percentage = 100, the filter value is     NUM_UNIQUE_VALUES, i.e., all values will match.
+  const auto filter_value = static_cast<DictEntry>(NUM_UNIQUE_VALUES * percentage_to_pass_filter);
+
   DictEntry* column_data = column.aligned_data();
   for (size_t i = 0; i < NUM_ROWS; ++i) {
     column_data[i] = i % NUM_UNIQUE_VALUES;
@@ -217,8 +227,8 @@ void BM_dictionary_scan(benchmark::State& state) {
   // Correctness check with naive implementation
   ScanFn scan_fn{};
   MatchingRows matching_rows_naive{NUM_ROWS};
-  const RowId num_matches_naive = naive_scalar_scan{}(column, 4, &matching_rows_naive);
-  const RowId num_matches_specialized = scan_fn(column, 4, &matching_rows);
+  const RowId num_matches_naive = naive_scalar_scan{}(column, filter_value, &matching_rows_naive);
+  const RowId num_matches_specialized = scan_fn(column, filter_value, &matching_rows);
 
   if (num_matches_naive != num_matches_specialized) {
     throw std::runtime_error{"Bad result. Expected " + std::to_string(num_matches_naive) + " rows to match, but got " +
@@ -230,24 +240,30 @@ void BM_dictionary_scan(benchmark::State& state) {
     }
   }
 
+  if (input_percentage == 100 && num_matches_specialized != NUM_ROWS) {
+    throw std::runtime_error{"Bad result. Did not match all rows."};
+  }
+  if (input_percentage == 0 && num_matches_specialized != 0) {
+    throw std::runtime_error{"Bad result. Did not match 0 rows."};
+  }
+
   benchmark::DoNotOptimize(column.aligned_data());
   benchmark::DoNotOptimize(matching_rows.aligned_data());
 
   for (auto _ : state) {
-    const RowId num_matches = scan_fn(column, 4, &matching_rows);
+    const RowId num_matches = scan_fn(column, filter_value, &matching_rows);
 
     benchmark::DoNotOptimize(num_matches);
     benchmark::DoNotOptimize(matching_rows.aligned_data());
   }
 }
 
-#define BM_ARGS Repetitions(1)
+#define BM_ARGS Arg(0)->Arg(33)->Arg(50)->Arg(66)->Arg(100)
 
 BENCHMARK(BM_dictionary_scan<naive_scalar_scan>)->BM_ARGS;
 
-
 #if defined(__aarch64__)
-//BENCHMARK(BM_dictionary_scan<neon_scan>)->BM_ARGS;
+// BENCHMARK(BM_dictionary_scan<neon_scan>)->BM_ARGS;
 #endif
 
 #if defined(__x86_64__)
