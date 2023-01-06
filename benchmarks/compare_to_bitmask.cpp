@@ -111,12 +111,19 @@ struct clang_vector_bitmask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
+      // Note from performance investigation: On skylake, this gives 50% of the handwritten performance for 8B
+      // vector elements. Clang does not use "extract single-precision to mask" (movmskps) or "extract
+      // double-precision to mask" (movmskpd) instructions here, even though they would be perfectly usable and do not
+      // depend on the values actually being floats.  Instead, it combines the 8B truthiness values into 1B truthiness
+      // values using 3 packs and one shift.
+      //
+      // This does not occur if avx512 is available, which can compare and store the result in a mask register in one
+      // instruction, see https://godbolt.org/z/efe8d61Gz.
+      // This could be considered a performance bug in clang
       MaskVecT subresult_vec = __builtin_convertvector(subinput1 == subinput2, MaskVecT);
       MaskT subresult = reinterpret_cast<SingleComparisonResultT&>(subresult_vec);
 
       if constexpr (NUM_VECTOR_ELEMENTS != 8 * sizeof(SingleComparisonResultT)) {
-        // TODO: Clang codegen isn't really good for 128 vectors with 8x8B / 16x4B input, and the masking here doesn't
-        // seem to help.
         subresult &= (1 << NUM_VECTOR_ELEMENTS) - 1;
       }
 
