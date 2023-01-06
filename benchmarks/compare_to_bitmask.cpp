@@ -22,7 +22,7 @@ auto create_bitmask_using_subresults(const InputT& input1, const InputT& input2)
     constexpr size_t iterations = sizeof(InputT) / VECTOR_BYTES;
 
     using MaskT = decltype(subresult_func(input1_vec[0], input2_vec[0]));
-    constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(*input1.data());
+    constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(typename InputT::DataT);
 
     MaskT result = 0;
     for (size_t i = 0; i < iterations; ++i) {
@@ -42,6 +42,9 @@ template <typename InputT>
 using DefaultMaskT = typename UnsignedInt<(sizeof(InputT) / sizeof(typename InputT::DataT) + 7) / 8>::T;
 
 template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
+#if GCC_COMPILER
+  __attribute__((optimize("no-tree-vectorize")))
+#endif
 struct naive_scalar_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
@@ -50,7 +53,34 @@ struct naive_scalar_bitmask {
     const auto* __restrict input1_typed = input1.data();
     const auto* __restrict input2_typed = input2.data();
 
-    constexpr size_t iterations = sizeof(InputT) / sizeof(*input1.data());
+    constexpr size_t iterations = sizeof(InputT) / sizeof(typename InputT::DataT);
+
+    MaskT result = 0;
+#if CLANG_COMPILER
+#pragma clang loop vectorize(disable)
+#endif
+    for (size_t i = 0; i < iterations; ++i) {
+      if (input1_typed[i] == input2_typed[i]) {
+        result |= 1ull << i;
+      }
+    }
+    return result;
+  }
+};
+
+template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
+struct autovec_scalar_bitmask {
+  using MaskT = MaskT_;
+  using InputT = InputT_;
+
+  // same code as for naive scalar, just with vectorization enabled
+  // As far as we know, there is no good way to get this autovectorized
+  // see https://stackoverflow.com/questions/75030873
+  MaskT operator()(const InputT& input1, const InputT& input2) {
+    const auto* __restrict input1_typed = input1.data();
+    const auto* __restrict input2_typed = input2.data();
+
+    constexpr size_t iterations = sizeof(InputT) / sizeof(typename InputT::DataT);
 
     MaskT result = 0;
     for (size_t i = 0; i < iterations; ++i) {
@@ -330,6 +360,7 @@ using Input_16B_as_2x8B = AlignedArray<uint64_t, 2, 16>;
 ///   16 Byte Input   ///
 /////////////////////////
 BENCHMARK_WITH_16B_INPUT(naive_scalar_bitmask);
+BENCHMARK_WITH_16B_INPUT(autovec_scalar_bitmask);
 BENCHMARK_WITH_16B_INPUT(bitset_bitmask);
 
 #if CLANG_COMPILER
@@ -348,6 +379,7 @@ BENCHMARK_WITH_16B_INPUT(x86_128_bitmask);
 ///   64 Byte Input   ///
 /////////////////////////
 BENCHMARK_WITH_64B_INPUT(naive_scalar_bitmask);
+BENCHMARK_WITH_64B_INPUT(autovec_scalar_bitmask);
 BENCHMARK_WITH_64B_INPUT(bitset_bitmask);
 
 #if CLANG_COMPILER
