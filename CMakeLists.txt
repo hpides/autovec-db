@@ -64,6 +64,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   list(APPEND WARNING_OPTIONS "-Wdocumentation" "-Wconditional-uninitialized" "-Wundef" "-Wunused-exception-parameter" "-Wunused-member-function")
   list(APPEND WARNING_OPTIONS "-Wno-gnu-zero-variadic-macro-arguments") # legal in c++20
   list(APPEND WARNING_OPTIONS "-Wshadow-all" "-Wno-shadow-field-in-constructor")
+  list(APPEND WARNING_OPTIONS "-Wno-gnu-line-marker") # We don't care about this, but it pops up if we use "--save-temps" with clang.
 endif()
 
 ##### COMPILE COMMANDS #####
@@ -80,6 +81,8 @@ function(add_benchmark bm_name)
   add_executable(${bm_name} ${AUTOVEC_SOURCE_DIR}/${bm_name}.cpp)
   target_link_libraries(${bm_name} PRIVATE autovec_includes benchmark)
   target_compile_options(${bm_name} PRIVATE "${WARNING_OPTIONS}")
+  # Keep the temporary files so we can inspect the generated assembly.
+  set_target_properties(${bm_name} PROPERTIES COMPILE_FLAGS "-save-temps=obj -fverbose-asm")
 endfunction()
 
 add_benchmark(compare_to_bitmask)
