@@ -46,8 +46,9 @@
 #define AVX512_AVAILABLE
 #endif
 
-template <typename DataT, size_t NUM_ENTRIES, size_t ALIGN>
+template <typename DataT_, size_t NUM_ENTRIES, size_t ALIGN>
 struct alignas(ALIGN) AlignedArray {
+  using DataT = DataT_;
   // We want to use an empty custom constructor here to avoid zeroing the array when creating an AlignedArray.
   AlignedArray() {}
 
@@ -123,6 +124,7 @@ inline VectorT shuffle_vector(VectorT vec, VectorT mask) {
 
 template <typename VectorT, typename ElementT = decltype(std::declval<VectorT>()[0])>
 inline VectorT broadcast(ElementT value) {
+  // https://stackoverflow.com/questions/40730815/gnu-c-native-vectors-how-to-broadcast-a-scalar-like-x86s-mm-set1-epi16
   return value - VectorT{};
 }
 

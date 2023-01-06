@@ -39,7 +39,7 @@ auto create_bitmask_using_subresults(const InputT& input1, const InputT& input2)
 }
 
 template <typename InputT>
-using DefaultMaskT = typename UnsignedInt<(sizeof(InputT) / sizeof(*std::declval<InputT>().data()) + 7) / 8>::T;
+using DefaultMaskT = typename UnsignedInt<(sizeof(InputT) / sizeof(typename InputT::DataT) + 7) / 8>::T;
 
 template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct naive_scalar_bitmask {
@@ -67,7 +67,7 @@ template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<I
 struct clang_vector_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
-  using ElementT = std::decay_t<decltype(*std::declval<InputT>().data())>;
+  using ElementT = typename InputT::DataT;
 
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
@@ -85,7 +85,7 @@ struct clang_vector_bitmask {
       MaskT subresult = reinterpret_cast<SingleComparisonResultT&>(subresult_vec);
 
       if constexpr (NUM_VECTOR_ELEMENTS != 8 * sizeof(SingleComparisonResultT)) {
-        // TODO: Clang codegen isn't really good for 128 vectors with 8x8B / 16x4B input, and the OR-ing here doesn't
+        // TODO: Clang codegen isn't really good for 128 vectors with 8x8B / 16x4B input, and the masking here doesn't
         // seem to help.
         subresult &= (1 << NUM_VECTOR_ELEMENTS) - 1;
       }
@@ -110,7 +110,7 @@ template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct bitset_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
-  using ElementT = std::decay_t<decltype(*std::declval<InputT>().data())>;
+  using ElementT = typename InputT::DataT;
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
     const auto* __restrict input1_typed = input1.data();
@@ -136,7 +136,7 @@ template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct neon_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
-  using ElementT = std::decay_t<decltype(*std::declval<InputT>().data())>;
+  using ElementT = typename InputT::DataT;
 
   using VecT = NeonVecT<sizeof(ElementT)>::T;
 
@@ -179,7 +179,7 @@ template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct x86_128_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
-  using ElementT = std::decay_t<decltype(*std::declval<InputT>().data())>;
+  using ElementT = typename InputT::DataT;
 
   using VecT = __m128i;
   static constexpr size_t NUM_VECTOR_ELEMENTS = sizeof(VecT) / sizeof(ElementT);
@@ -239,7 +239,7 @@ template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct x86_512_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
-  using ElementT = std::decay_t<decltype(*std::declval<InputT>().data())>;
+  using ElementT = typename InputT::DataT;
 
   using VecT = __m512i;
 
