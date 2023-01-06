@@ -43,7 +43,7 @@ using DefaultMaskT = typename UnsignedInt<(sizeof(InputT) / sizeof(typename Inpu
 
 template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 #if GCC_COMPILER
-  __attribute__((optimize("no-tree-vectorize")))
+__attribute__((optimize("no-tree-vectorize")))
 #endif
 struct naive_scalar_bitmask {
   using MaskT = MaskT_;
@@ -159,6 +159,11 @@ struct bitset_bitmask {
 template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct gcc_vector_bitmask {
   // TODO
+  // Kernproblem: GCC hat keinen bit-bool-vector, wir können die clang-Logik nicht nutzen.
+  // Haben auch beide keinen Weg gefunden, das zu umgehen
+  // -> Bräuchten wrapper für die atomare Funktion "byte-vec zu bit-mask", der dann plattformspezifisch implementiert
+  // Probleme: Nervig zu maintainen, Optimierung über Atomare Operationen hinweg geht futsch (AVX kann "compare equal
+  // and extract result as mask" in einer Instruction)
 };
 
 #if defined(__aarch64__)
