@@ -7,23 +7,12 @@
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
+#include "simd.hpp"
 
 namespace {
 
-template <typename VecT, size_t NUM_ELEMENTS = sizeof(VecT) / sizeof(decltype(VecT{}[0]))>
-uint8_t TEMPORARY_get_mask(VecT input) {
-  static_assert(NUM_ELEMENTS <= 8);
-  uint8_t result = 0;
-  for (size_t i = 0; i < NUM_ELEMENTS; ++i) {
-    if (input[i]) {
-      result |= 1ull << i;
-    }
-  }
-  return result;
-}
-
-uint8_t gcc_vec_get_mask(GccVec<uint32_t, 16>::T matches) {
-  constexpr GccVec<uint32_t, 16>::T and_mask = {1, 2, 4, 8};
+uint8_t gcc_vec_get_mask(simd::GccVec<uint32_t, 16>::T matches) {
+  constexpr simd::GccVec<uint32_t, 16>::T and_mask = {1, 2, 4, 8};
   auto single_bits = matches & and_mask;
   alignas(16) std::array<uint32_t, 4> single_bit_array{};
   std::memcpy(&single_bit_array, &single_bits, sizeof(single_bit_array));
@@ -42,7 +31,7 @@ using MatchingRows = AlignedData<RowId, 64>;
 // TODO: check this comment
 // Must be a multiple of 16 for 512 Bit processing.
 static constexpr size_t NUM_BASE_ROWS = 16;
-static constexpr size_t SCALE_FACTOR = 1024 * 16;
+static constexpr size_t SCALE_FACTOR = 1024 * 64;
 static constexpr size_t NUM_ROWS = NUM_BASE_ROWS * SCALE_FACTOR;
 static constexpr size_t NUM_UNIQUE_VALUES = 16;
 
@@ -67,16 +56,16 @@ struct autovec_scalar_find {
 
 struct vector_128_scan {
   static_assert(sizeof(DictEntry) == 4, "Need to change DictVec below.");
-  using DictVec = GccVec<uint32_t, 16>::T;
+  using DictVec = simd::GccVec<uint32_t, 16>::T;
 
   static_assert(sizeof(RowId) == 4, "Need to change RowVec below.");
-  using RowVec = GccVec<uint32_t, 16>::T;
+  using RowVec = simd::GccVec<uint32_t, 16>::T;
 
   static constexpr size_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
 
-  // We need 4 values here, and they have to be the same size as the vector-to-shuffle for GCC, so they have to be 32
-  // Bit. With clang, we could use uint8_t.
-  using ShuffleVec = GccVec<uint32_t, 16>::T;
+  // We need 4 values here, and they could be of uint8_t to save memory. However, this has a conversion cost before the
+  // shuffle, so we use the larger uint32_t to avoid that runtime cost (~60% in one experiment!)
+  using ShuffleVec = RowVec;           // could also be simd::GccVec<uint8_t, 4>::T;
   static constexpr uint32_t SDC = -1;  // SDC == SHUFFLE_DONT_CARE
 
 #pragma GCC diagnostic push
@@ -102,15 +91,17 @@ struct vector_128_scan {
     static_assert(NUM_ROWS % (NUM_MATCHES_PER_VECTOR) == 0);
     constexpr size_t iterations = NUM_ROWS / NUM_MATCHES_PER_VECTOR;
     for (RowId i = 0; i < iterations; ++i) {
-      auto rows_to_match = simd::load<DictVec>(rows + (i * NUM_MATCHES_PER_VECTOR));
-      DictVec matches = rows_to_match < filter_vec;
-
       const RowId start_row = NUM_MATCHES_PER_VECTOR * i;
       RowVec row_ids = {start_row + 0, start_row + 1, start_row + 2, start_row + 3};
+
+      auto rows_to_match = simd::load<DictVec>(rows + start_row);
+      DictVec matches = rows_to_match < filter_vec;
 
       // TODO: if constexpr shuffle strategy
       //      uint8_t mask = TEMPORARY_get_mask(matches);  // TODO: update with real method/strategy here
       uint8_t mask = gcc_vec_get_mask(matches);  // TODO: update with real method/strategy here
+      assert(mask < 16 && "Mask cannot have more than 4 bits set.");
+
       ShuffleVec shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
       RowVec compressed_rows = simd::shuffle_vector(row_ids, shuffle_mask);
       simd::unaligned_store(output + num_matching_rows, compressed_rows);
@@ -168,11 +159,11 @@ struct neon_scan {
     static_assert(NUM_ROWS % (NUM_MATCHES_PER_VECTOR) == 0);
     constexpr size_t iterations = NUM_ROWS / NUM_MATCHES_PER_VECTOR;
     for (RowId i = 0; i < iterations; ++i) {
-      DictVec rows_to_match = vld1q_u32(rows + (i * NUM_MATCHES_PER_VECTOR));
-      DictVec matches = vcltq_u32(rows_to_match, filter_vec);
-
       const RowId start_row = NUM_MATCHES_PER_VECTOR * i;
       RowVec row_ids = {start_row + 0, start_row + 1, start_row + 2, start_row + 3};
+
+      DictVec rows_to_match = vld1q_u32(rows + start_row);
+      DictVec matches = vcltq_u32(rows_to_match, filter_vec);
 
       // TODO: if constexpr shuffle strategy
 
@@ -257,8 +248,8 @@ void BM_dictionary_scan(benchmark::State& state) {
   }
 }
 
-// #define BM_ARGS Arg(0)->Arg(33)->Arg(50)->Arg(66)->Arg(100)
-#define BM_ARGS Arg(50)
+//#define BM_ARGS Unit(benchmark::kMicrosecond)->Arg(0)->Arg(33)->Arg(50)->Arg(66)->Arg(100)
+#define BM_ARGS Unit(benchmark::kMicrosecond)->Arg(50)
 
 BENCHMARK(BM_dictionary_scan<naive_scalar_scan>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_128_scan>)->BM_ARGS;

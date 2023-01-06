@@ -6,6 +6,7 @@
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
+#include "simd.hpp"
 
 #define BM_ARGS Repetitions(1)->Arg(27)
 
@@ -222,7 +223,7 @@ struct vector_hash {
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(uint64_t);
 
-  using VecT = typename GccVec<uint64_t, VECTOR_BYTES>::T;
+  using VecT = typename simd::GccVec<uint64_t, VECTOR_BYTES>::T;
   static_assert(sizeof(VecT) == VECTOR_BYTES);
 
   void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {

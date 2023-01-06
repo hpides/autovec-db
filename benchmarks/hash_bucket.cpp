@@ -6,6 +6,7 @@
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
+#include "simd.hpp"
 
 static constexpr uint64_t NUM_ENTRIES = 15;
 static constexpr uint64_t NO_MATCH = std::numeric_limits<uint64_t>::max();
@@ -85,7 +86,7 @@ struct neon_find {
     uint8x16_t fp_vector = vld1q_u8(fingerprints);
 
     // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
-    vec8x16_t lookup_fp = vmovq_n_u8(fingerprint);
+    uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
     lookup_fp[15] = 0;
 
     // Compare fingerprints.
@@ -160,7 +161,7 @@ struct vector_find {
     vec8x16 fp_vector = *reinterpret_cast<vec8x16*>(fingerprints);
 
     // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
-    vec8x16 lookup_fp = broadcast<vec8x16>(fingerprint);
+    vec8x16 lookup_fp = simd::broadcast<vec8x16>(fingerprint);
     lookup_fp[15] = 0;
 
     // Compare fingerprints.

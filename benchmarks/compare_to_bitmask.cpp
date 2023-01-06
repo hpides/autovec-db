@@ -6,6 +6,7 @@
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
+#include "simd.hpp"
 
 template <typename InputT, typename ElementT>
 using DefaultMaskT = typename UnsignedInt<(sizeof(InputT) / sizeof(ElementT) + 7) / 8>::T;
@@ -43,8 +44,8 @@ struct clang_vector_bitmask {
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
 
-  using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
-  using MaskVecT = typename ClangBitmask<NUM_VECTOR_ELEMENTS>::T;
+  using VecT = typename simd::GccVec<ElementT, VECTOR_BYTES>::T;
+  using MaskVecT = typename simd::ClangBitmask<NUM_VECTOR_ELEMENTS>::T;
 
   using SingleComparisonResultT = typename UnsignedInt<sizeof(MaskVecT)>::T;
 
