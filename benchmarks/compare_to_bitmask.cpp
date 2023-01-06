@@ -219,6 +219,8 @@ struct neon_bitmask {
 #if defined(__x86_64__)
 template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct x86_128_bitmask {
+  // Implementations for AVX2 and SSE would be identical here
+  // (AVX2 doesn't add any useful 128bit operations)
   using MaskT = MaskT_;
   using InputT = InputT_;
   using ElementT = typename InputT::DataT;
@@ -246,6 +248,8 @@ struct x86_128_bitmask {
         if constexpr (sizeof(ElementT) == 1) {
           return _mm_movemask_epi8(vector_compare_result);
         } else if constexpr (sizeof(ElementT) == 2) {
+          // Weirdness: Up to AVX2 (including), we do not have "extract 2B truthiness to mask" instructions
+
           // Moves all upper halves of the 2B elements to the bytes (0, 8), clears upper bytes.
           __m128i upper_byte_shuffle_mask = _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 15, 13, 11, 9, 7, 5, 3, 1);
           __m128i upper_bytes_shuffled = _mm_shuffle_epi8(vector_compare_result, upper_byte_shuffle_mask);
@@ -263,6 +267,70 @@ struct x86_128_bitmask {
           return _mm_movemask_ps(reinterpret_cast<__m128>(vector_compare_result));
         } else if constexpr (sizeof(ElementT) == 8) {
           return _mm_movemask_pd(reinterpret_cast<__m128d>(vector_compare_result));
+        }
+      }();
+
+      assert(static_cast<unsigned int>(std::countl_zero(subresult)) >= 8 * sizeof(MaskT) - NUM_VECTOR_ELEMENTS);
+      return subresult;
+    }
+  };
+
+  MaskT operator()(const InputT& input1, const InputT& input2) {
+    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+  }
+};
+
+template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
+struct x86_256_avx2_bitmask {
+  // identical to x86_128, just wider.
+  // performance analysis on skylake: This creates 2 vector loads, 2 vector compares, 2 mask extractions, 1 shift, 1 or
+  // the clang-vector-512bit code generation is smarter and doesn't have to keep the outer loop. It creates 2 vector
+  // loads, 2 vector compares, 1 vector pack, 1 vector permute, 1 mask extract. In total, this is one fewer instruction,
+  // and we observe this being ~12% faster.
+  using MaskT = MaskT_;
+  using InputT = InputT_;
+  using ElementT = typename InputT::DataT;
+
+  using VecT = __m256i;
+  static constexpr size_t NUM_VECTOR_ELEMENTS = sizeof(VecT) / sizeof(ElementT);
+
+  struct GetSubresulMask {
+    using InputT = VecT;
+
+    MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
+      VecT vector_compare_result = [&]() {
+        if constexpr (sizeof(ElementT) == 1) {
+          return _mm256_cmpeq_epi8(subinput1, subinput2);
+        } else if constexpr (sizeof(ElementT) == 2) {
+          return _mm256_cmpeq_epi16(subinput1, subinput2);
+        } else if constexpr (sizeof(ElementT) == 4) {
+          return _mm256_cmpeq_epi32(subinput1, subinput2);
+        } else if constexpr (sizeof(ElementT) == 8) {
+          return _mm256_cmpeq_epi64(subinput1, subinput2);
+        }
+      }();
+
+      MaskT subresult = [&]() {
+        if constexpr (sizeof(ElementT) == 1) {
+          return _mm256_movemask_epi8(vector_compare_result);
+        } else if constexpr (sizeof(ElementT) == 2) {
+          __m256i upper_byte_shuffle_mask =
+              _mm256_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 31, 29, 27, 25, 23, 21,
+                              19, 17, 15, 13, 11, 9, 7, 5, 3, 1);
+          __m256i upper_bytes_shuffled = _mm256_shuffle_epi8(vector_compare_result, upper_byte_shuffle_mask);
+
+          __m256i lower_byte_shuffle_mask =
+              _mm256_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 30, 28, 26, 24, 22, 20,
+                              18, 16, 14, 12, 10, 8, 6, 4, 2, 0);
+          __m256i lower_bytes_shuffled = _mm256_shuffle_epi8(vector_compare_result, lower_byte_shuffle_mask);
+
+          __m256i int16_equality_vec = _mm256_and_si256(upper_bytes_shuffled, lower_bytes_shuffled);
+
+          return _mm256_movemask_epi8(int16_equality_vec);
+        } else if constexpr (sizeof(ElementT) == 4) {
+          return _mm256_movemask_ps(reinterpret_cast<__m256>(vector_compare_result));
+        } else if constexpr (sizeof(ElementT) == 8) {
+          return _mm256_movemask_pd(reinterpret_cast<__m256d>(vector_compare_result));
         }
       }();
 
@@ -406,6 +474,7 @@ BENCHMARK_WITH_64B_INPUT(neon_bitmask);
 
 #if defined(__x86_64__)
 BENCHMARK_WITH_64B_INPUT(x86_128_bitmask);
+BENCHMARK_WITH_64B_INPUT(x86_256_avx2_bitmask);
 #endif
 
 #if defined(AVX512_AVAILABLE)
