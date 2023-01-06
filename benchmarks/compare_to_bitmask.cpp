@@ -42,13 +42,13 @@ template <typename InputT>
 using DefaultMaskT = typename UnsignedInt<(sizeof(InputT) / sizeof(typename InputT::DataT) + 7) / 8>::T;
 
 template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
-#if GCC_COMPILER
-__attribute__((optimize("no-tree-vectorize")))
-#endif
 struct naive_scalar_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
 
+#if GCC_COMPILER
+__attribute__((optimize("no-tree-vectorize")))
+#endif
   MaskT operator()(const InputT& input1, const InputT& input2) {
     const auto* __restrict input1_typed = input1.data();
     const auto* __restrict input2_typed = input2.data();
