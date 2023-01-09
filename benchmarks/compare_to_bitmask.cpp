@@ -251,19 +251,11 @@ struct x86_128_bitmask {
         } else if constexpr (sizeof(ElementT) == 2) {
           // Weirdness: Up to AVX2 (including), we do not have "extract 2B truthiness to mask" instructions
 
-          // Moves all upper halves of the 2B elements to the bytes (0, 8), clears upper bytes.
-          __m128i upper_byte_shuffle_mask = _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 15, 13, 11, 9, 7, 5, 3, 1);
-          __m128i upper_bytes_shuffled = _mm_shuffle_epi8(vector_compare_result, upper_byte_shuffle_mask);
-
-          // Moves all lower halves of the 2B elements to the bytes (0, 8), clears upper bytes.
+          // The comparison result is two bytes, either 0xffff or 0x0000. We just need one byte out of that.
+          // Move all lower halves of the 2B elements to the bytes (0, 8), clears upper bytes.
           __m128i lower_byte_shuffle_mask = _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0);
           __m128i lower_bytes_shuffled = _mm_shuffle_epi8(vector_compare_result, lower_byte_shuffle_mask);
-
-          // AND them together to get 2B-value equality
-          __m128i int16_equality_vec = _mm_and_si128(upper_bytes_shuffled, lower_bytes_shuffled);
-
-          // extract to integer bitmask
-          return _mm_movemask_epi8(int16_equality_vec);
+          return _mm_movemask_epi8(lower_bytes_shuffled);
         } else if constexpr (sizeof(ElementT) == 4) {
           return _mm_movemask_ps(reinterpret_cast<__m128>(vector_compare_result));
         } else if constexpr (sizeof(ElementT) == 8) {
@@ -313,21 +305,20 @@ struct x86_256_avx2_bitmask {
 
       MaskT subresult = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
-          return _mm256_movemask_epi8(vector_compare_result);
+          // cast to unsigned is necessary because otherwise the widening will be sign-expanding, filling in 1-bits
+          return static_cast<uint32_t>(_mm256_movemask_epi8(vector_compare_result));
         } else if constexpr (sizeof(ElementT) == 2) {
-          __m256i upper_byte_shuffle_mask =
-              _mm256_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 31, 29, 27, 25, 23, 21,
-                              19, 17, 15, 13, 11, 9, 7, 5, 3, 1);
-          __m256i upper_bytes_shuffled = _mm256_shuffle_epi8(vector_compare_result, upper_byte_shuffle_mask);
-
-          __m256i lower_byte_shuffle_mask =
-              _mm256_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 30, 28, 26, 24, 22, 20,
-                              18, 16, 14, 12, 10, 8, 6, 4, 2, 0);
+          // TODO: On i5-6200U, the clang-vector-variant is slightly faster (extract to XMM, 2 vpacksswb, 2 movmsk, 1
+          // shift, 1 or).
+          // avx2 shuffle is super weird: You can only shuffle within a lane, indices are within the current lane.
+          __m256i lower_byte_shuffle_mask = _mm256_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0,
+                                                            -1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0);
           __m256i lower_bytes_shuffled = _mm256_shuffle_epi8(vector_compare_result, lower_byte_shuffle_mask);
-
-          __m256i int16_equality_vec = _mm256_and_si256(upper_bytes_shuffled, lower_bytes_shuffled);
-
-          return _mm256_movemask_epi8(int16_equality_vec);
+          // We now have: In each lane, the lowest 8 bytes contain our 8 result values.
+          auto two_half_results = _mm256_movemask_epi8(lower_bytes_shuffled);
+          // 0b00000000 11011001 00000000 11011111
+          uint16_t result = two_half_results | (two_half_results >> 8);
+          return result;
         } else if constexpr (sizeof(ElementT) == 4) {
           return _mm256_movemask_ps(reinterpret_cast<__m256>(vector_compare_result));
         } else if constexpr (sizeof(ElementT) == 8) {
