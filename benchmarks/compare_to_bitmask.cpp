@@ -47,9 +47,10 @@ struct naive_scalar_bitmask {
   using InputT = InputT_;
 
 #if GCC_COMPILER
-__attribute__((optimize("no-tree-vectorize")))
+  __attribute__((optimize("no-tree-vectorize")))
 #endif
-  MaskT operator()(const InputT& input1, const InputT& input2) {
+  MaskT
+  operator()(const InputT& input1, const InputT& input2) {
     const auto* __restrict input1_typed = input1.data();
     const auto* __restrict input2_typed = input2.data();
 
