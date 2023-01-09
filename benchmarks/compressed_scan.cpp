@@ -115,8 +115,6 @@ void BM_scanning(benchmark::State& state) {
 }
 
 #if defined(__aarch64__)
-#include <arm_neon.h>
-
 struct neon_scan {
   static constexpr size_t VALUES_PER_ITERATION = 4;
   static constexpr size_t ITERATIONS_PER_BATCH = (16 * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
@@ -198,8 +196,6 @@ struct neon_scan {
 #endif
 
 #if defined(__x86_64__)
-#include <immintrin.h>
-
 struct x86_128_scan {
   static constexpr size_t VALUES_PER_ITERATION = 4;
   static constexpr size_t ITERATIONS_PER_BATCH = (16 * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;

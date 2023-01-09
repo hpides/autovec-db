@@ -46,8 +46,9 @@
 #define AVX512_AVAILABLE
 #endif
 
-template <typename DataT, size_t NUM_ENTRIES, size_t ALIGN>
+template <typename DataT_, size_t NUM_ENTRIES, size_t ALIGN>
 struct alignas(ALIGN) AlignedArray {
+  using DataT = DataT_;
   // We want to use an empty custom constructor here to avoid zeroing the array when creating an AlignedArray.
   AlignedArray() {}
 
@@ -123,6 +124,7 @@ inline VectorT shuffle_vector(VectorT vec, VectorT mask) {
 
 template <typename VectorT, typename ElementT = decltype(std::declval<VectorT>()[0])>
 inline VectorT broadcast(ElementT value) {
+  // https://stackoverflow.com/questions/40730815/gnu-c-native-vectors-how-to-broadcast-a-scalar-like-x86s-mm-set1-epi16
   return value - VectorT{};
 }
 
@@ -136,3 +138,18 @@ template <> struct UnsignedInt<2> { using T = uint16_t; };
 template <> struct UnsignedInt<4> { using T = uint32_t; };
 template <> struct UnsignedInt<8> { using T = uint64_t; };
 // clang-format on
+
+#if defined(__aarch64__)
+#include <arm_neon.h>
+// clang-format off
+template <size_t ELEMENT_BYTES> struct NeonVecT;
+template <> struct NeonVecT<1> { using T = uint8x16_t; };
+template <> struct NeonVecT<2> { using T = uint16x8_t; };
+template <> struct NeonVecT<4> { using T = uint32x4_t; };
+template <> struct NeonVecT<8> { using T = uint64x2_t; };
+// clang-format on
+#endif
+
+#if defined(__x86_64__)
+#include <immintrin.h>
+#endif
