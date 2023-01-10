@@ -46,9 +46,11 @@
 #define AVX512_AVAILABLE
 #endif
 
-template <typename DataT_, size_t NUM_ENTRIES, size_t ALIGN>
+template <typename DataT_, size_t NUM_ENTRIES_, size_t ALIGN>
 struct alignas(ALIGN) AlignedArray {
   using DataT = DataT_;
+  static constexpr size_t NUM_ENTRIES = NUM_ENTRIES_;
+
   // We want to use an empty custom constructor here to avoid zeroing the array when creating an AlignedArray.
   AlignedArray() {}
 
