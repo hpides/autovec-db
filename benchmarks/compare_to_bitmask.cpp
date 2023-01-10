@@ -166,12 +166,44 @@ struct bitset_bitmask {
 
 template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct gcc_vector_bitmask {
-  // TODO
-  // Kernproblem: GCC hat keinen bit-bool-vector, wir können die clang-Logik nicht nutzen.
-  // Haben auch beide keinen Weg gefunden, das zu umgehen
-  // -> Bräuchten wrapper für die atomare Funktion "byte-vec zu bit-mask", der dann plattformspezifisch implementiert
-  // Probleme: Nervig zu maintainen, Optimierung über Atomare Operationen hinweg geht futsch (AVX kann "compare equal
-  // and extract result as mask" in einer Instruction)
+  using MaskT = MaskT_;
+  using InputT = InputT_;
+  using ElementT = typename InputT::DataT;
+
+  static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
+  static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
+
+  using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
+
+  struct GetSubresulMask {
+    using InputT = VecT;
+
+    MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
+      // GCC does not have a bit-bool-vector, so we can't use the clang-logic (using convert_shufflevector).
+      // We also didn't find any other good way to encode this conversion. This is one approach, but we're not happy
+      // with it.
+      //
+      // For a real codebase, it would probably make sense to have a helper function "byte_vector_to_bit_mask" that uses
+      // platform-specific intrinsics. However, this pessimizes optimizations of multiple vector operations: Clang can
+      // optimize
+      // __builtin_convertvector(a == b, boolvector) into a single instruction, the GCC approach wouldn't do that.
+      auto subresult_bool_vec = subinput1 == subinput2;
+      MaskT result = 0;
+      for (size_t i = 0; i < NUM_VECTOR_ELEMENTS; ++i) {
+        result |= subresult_bool_vec[i] ? 1ull << i : 0;
+      }
+      return result;
+    }
+  };
+
+  MaskT operator()(const InputT& input1, const InputT& input2) {
+    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+  }
+};
+template <size_t VECTOR_BITS>
+struct sized_gcc_vector_bitmask {
+  template <typename InputT_>
+  using Benchmark = gcc_vector_bitmask<VECTOR_BITS, InputT_>;
 };
 
 #if defined(__aarch64__)
@@ -434,6 +466,7 @@ using Input_16B_as_2x8B = AlignedArray<uint64_t, 2, 16>;
 BENCHMARK_WITH_16B_INPUT(naive_scalar_bitmask);
 BENCHMARK_WITH_16B_INPUT(autovec_scalar_bitmask);
 BENCHMARK_WITH_16B_INPUT(bitset_bitmask);
+BENCHMARK_WITH_16B_INPUT(sized_gcc_vector_bitmask<128>::Benchmark);
 
 #if CLANG_COMPILER
 BENCHMARK_WITH_16B_INPUT(sized_clang_vector_bitmask<128>::Benchmark);
@@ -453,6 +486,9 @@ BENCHMARK_WITH_16B_INPUT(x86_128_bitmask);
 BENCHMARK_WITH_64B_INPUT(naive_scalar_bitmask);
 BENCHMARK_WITH_64B_INPUT(autovec_scalar_bitmask);
 BENCHMARK_WITH_64B_INPUT(bitset_bitmask);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_bitmask<128>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_bitmask<256>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_bitmask<512>::Benchmark);
 
 #if CLANG_COMPILER
 BENCHMARK_WITH_64B_INPUT(sized_clang_vector_bitmask<128>::Benchmark);
