@@ -28,26 +28,40 @@ template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
   FindFn find_fn{};
   HashBucket bucket{};
-  // TODO: Can this be randomly shuffled? I think it can and it should.
   // TODO: The real hashmap has to handle potentially deleted entries (tombstones), bucket overflow
   // TODO: For F14, all "valid" fingerprints have the MSB set to distinguish from "no value stored" (I think?)
   // TODO: F14 has 14 elements after 2 bytes of metadata. Is that our guideline?
-  bucket.fingerprints = {3, 8, 12, 10, 11, 6, 15, 1, 5, 14, 13, 2, 9, 4, 7};
-  bucket.entries = {Entry{30, 30},   Entry{80, 80},   Entry{120, 120}, Entry{100, 100}, Entry{110, 110},
-                    Entry{60, 60},   Entry{150, 150}, Entry{10, 10},   Entry{50, 50},   Entry{140, 140},
-                    Entry{130, 130}, Entry{20, 20},   Entry{90, 90},   Entry{40, 40},   Entry{70, 70}};
-
   std::mt19937 rng{std::random_device{}()};
+  std::uniform_int_distribution<> index_distribution(0, NUM_ENTRIES - 1);
+  std::ranges::generate(bucket.fingerprints, [&]() { return rng(); });
+  std::ranges::generate(bucket.entries, [&]() { return Entry{rng(), rng()}; });
 
-  // TODO: I think we want to have non-successful lookups as well (both "no fp match" and "fp match but key mismatch")
-  // Detecting "no match" should be much faster with vectorization.
-  std::array<uint8_t, NUM_ENTRIES> lookup_fps = bucket.fingerprints;
-  std::shuffle(lookup_fps.begin(), lookup_fps.end(), rng);
+  std::array<size_t, NUM_ENTRIES> lookup_indices;
+  std::ranges::generate(lookup_indices, [&]() {
+    if (rng() % 2 == 0) {
+      return index_distribution(rng);  // With ~50% probability, we look up a random existing element.
+    } else {
+      return -1;  // otherwise, we attempt to lookup a non-existing key
+    }
+  });
+
+  std::array<uint8_t, NUM_ENTRIES> lookup_fps;
+  std::ranges::transform(lookup_indices, lookup_fps.begin(), [&](size_t index) {
+    if (index == -1ull) {
+      return static_cast<uint8_t>(rng() | 128);  // can collide, this is realistic
+    } else {
+      return bucket.fingerprints[index];
+    }
+  });
 
   std::array<uint64_t, NUM_ENTRIES> lookup_keys{};
-  for (size_t i = 0; i < NUM_ENTRIES; ++i) {
-    lookup_keys[i] = lookup_fps[i] * 10;
-  }
+  std::ranges::transform(lookup_indices, lookup_fps.begin(), [&](size_t index) {
+    if (index == -1ull) {
+      return rng();  // In theory, this can also collide. We don't want that to happen. In practice, it doesn't happen.
+    } else {
+      return bucket.entries[index].key;
+    }
+  });
 
   // "leak" pointers so that successive DoNotOptimize calls invalidate it.
   benchmark::DoNotOptimize(lookup_keys.data());
@@ -56,7 +70,8 @@ void BM_hash_bucket_get(benchmark::State& state) {
   for (auto _ : state) {
     for (size_t i = 0; i < NUM_ENTRIES; ++i) {
       const uint64_t value = find_fn(bucket, lookup_keys[i], lookup_fps[i]);
-      assert(value != NO_MATCH);
+      assert((lookup_indices[i] == -1ull && value == NO_MATCH) ||
+             (lookup_indices[i] != -1ull && value == bucket.entries[lookup_indices[i]].value));
 
       benchmark::DoNotOptimize(value);
     }
