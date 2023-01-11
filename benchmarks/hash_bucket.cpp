@@ -39,6 +39,8 @@ void BM_hash_bucket_get(benchmark::State& state) {
   std::array<size_t, NUM_ENTRIES> lookup_indices;
   std::ranges::generate(lookup_indices, [&]() {
     if (rng() % 2 == 0) {
+      // TODO: If this gives us too much deviation on the benchmarking results, we might want to have less random
+      // indices here. Currently, I get a stddev of 5% to 15% on vector_find
       return index_distribution(rng);  // With ~50% probability, we look up a random existing element.
     } else {
       return -1;  // otherwise, we attempt to lookup a non-existing key
@@ -78,7 +80,6 @@ void BM_hash_bucket_get(benchmark::State& state) {
   }
 }
 
-// Offset is required to process both 64bit halves of the 128 bit fingerprint comparison result
 inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, uint64_t key,
                                                           __uint128_t fingerprint_matches) {
   while (fingerprint_matches != 0) {
@@ -160,18 +161,18 @@ struct naive_scalar_key_only_find {
 
 struct autovec_scalar_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    // TODO: This is not the solution we want yet, it's just a dummy WIP state.
-    alignas(16) std::array<bool, 16> matches{false};
-    for (size_t i = 0; i < NUM_ENTRIES; ++i) {
-      matches[i] = bucket.fingerprints[i] == fingerprint;
+    // TODO: This code is okay-ish C++ for autovectorization.
+    // However, clang is currently broken when converting the 16-bit char array to uint128_t,
+    // (https://github.com/llvm/llvm-project/issues/59937)
+    // and GCC doesn't autovectorize the match-from-fingerprints logic well
+    uint8_t* __restrict fingerprint_data = std::assume_aligned<16>(bucket.fingerprints.data());
+
+    alignas(16) std::array<uint8_t, 16> matches;
+    for (size_t i = 0; i < 16; ++i) {
+      matches[i] = fingerprint_data[i] == fingerprint ? 0xff : 0;
     }
 
-    for (size_t i = 0; i < NUM_ENTRIES; ++i) {
-      if (matches[i] && bucket.entries[i].key == key) {
-        return bucket.entries[i].value;
-      }
-    }
-    return NO_MATCH;
+    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t&>(matches[0]));
   }
 };
 
