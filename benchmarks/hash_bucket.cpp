@@ -80,12 +80,11 @@ void BM_hash_bucket_get(benchmark::State& state) {
 
 // Offset is required to process both 64bit halves of the 128 bit fingerprint comparison result
 inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, uint64_t key,
-                                                          uint64_t fingerprint_matches, size_t entry_offset) {
-  // TODO: Call once, pass in 16B (as uint128_t?). We want this to be inlined anyway, could also be a reference.
+                                                          __uint128_t fingerprint_matches) {
   while (fingerprint_matches != 0) {
     uint32_t trailing_zeros = std::countr_zero(fingerprint_matches);
     // 1B = 8bit per truthness-value
-    uint16_t match_pos = entry_offset + (trailing_zeros / 8);
+    uint16_t match_pos = (trailing_zeros / 8);
 
     // We expect fingerprint collisions to be unlikely
     if (bucket.entries[match_pos].key == key) [[likely]] {
@@ -115,14 +114,7 @@ struct neon_find_bytes {
 
     uint8x16_t fingerprint_matches = vceqq_u8(fp_vector, lookup_fp);
 
-    uint64_t low_fp_matches = reinterpret_cast<uint64_t*>(matching_fingerprints)[0];
-    uint64_t found_value = key_matches_from_fingerprint_matches_byte(bucket, key, low_matches, 0);
-    if (found_value != NO_MATCH) {
-      return found_value;
-    }
-
-    uint64_t high_fp_matches = reinterpret_cast<uint64_t*>(&matching_fingerprints)[1];
-    return key_matches_from_fingerprint_matches_byte(bucket, key, high_matches, 8);
+    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(matching_fingerprints));
   }
 };
 BENCHMARK(BM_hash_bucket_get<neon_find_bytes>)->BM_ARGS;
@@ -193,14 +185,7 @@ struct vector_find {
     vec8x16 lookup_fp = broadcast<vec8x16>(fingerprint);
     vec8x16 matching_fingerprints = fp_vector == lookup_fp;
 
-    uint64_t low_matches = reinterpret_cast<uint64_t*>(&matching_fingerprints)[0];
-    uint64_t low_match = key_matches_from_fingerprint_matches_byte(bucket, key, low_matches, 0);
-    if (low_match != NO_MATCH) {
-      return low_match;
-    }
-
-    uint64_t high_matches = reinterpret_cast<uint64_t*>(&matching_fingerprints)[1];
-    return key_matches_from_fingerprint_matches_byte(bucket, key, high_matches, 8);
+    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(matching_fingerprints));
   }
 };
 
