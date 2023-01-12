@@ -1,3 +1,5 @@
+#include <stddef.h>
+
 #include <array>
 #include <bit>
 #include <cstdint>
@@ -16,7 +18,8 @@ struct Entry {
 };
 
 struct HashBucket {
-  alignas(16) std::array<uint8_t, NUM_ENTRIES> fingerprints;
+  // Valid fingerprints have their most significant bit set. MSB=0 indicates that there is no entry stored at this slot.
+  alignas(16) std::array<uint8_t, NUM_ENTRIES + 1> fingerprints;
   std::array<Entry, NUM_ENTRIES> entries;
 };
 
@@ -28,12 +31,10 @@ template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
   FindFn find_fn{};
   HashBucket bucket{};
-  // TODO: The real hashmap has to handle potentially deleted entries (tombstones), bucket overflow
-  // TODO: For F14, all "valid" fingerprints have the MSB set to distinguish from "no value stored" (I think?)
-  // TODO: F14 has 14 elements after 2 bytes of metadata. Is that our guideline?
   std::mt19937 rng{std::random_device{}()};
   std::uniform_int_distribution<> index_distribution(0, NUM_ENTRIES - 1);
-  std::ranges::generate(bucket.fingerprints, [&]() { return rng(); });
+  std::ranges::generate(bucket.fingerprints, [&]() { return rng() | 128; });
+  bucket.fingerprints[NUM_ENTRIES] = 0;
   std::ranges::generate(bucket.entries, [&]() { return Entry{rng(), rng()}; });
 
   std::array<size_t, NUM_ENTRIES> lookup_indices;
@@ -83,9 +84,9 @@ void BM_hash_bucket_get(benchmark::State& state) {
 inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, uint64_t key,
                                                           __uint128_t fingerprint_matches) {
   while (fingerprint_matches != 0) {
-    uint32_t trailing_zeros = std::countr_zero(fingerprint_matches);
+    int trailing_zeros = std::countr_zero(fingerprint_matches);
     // 1B = 8bit per truthness-value
-    uint16_t match_pos = (trailing_zeros / 8);
+    int match_pos = (trailing_zeros / 8);
 
     // We expect fingerprint collisions to be unlikely
     if (bucket.entries[match_pos].key == key) [[likely]] {
@@ -105,14 +106,6 @@ struct neon_find_bytes {
 
     // Broadcast the fingerprint to compare against.
     uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
-    // The fingerprints-array only has 15 elements, so we use 0 as a never-matching lookup value for the last element
-    // TODO: It is not guaranteed that the value stored in the padding is not actually 0. So, this could very well
-    // give us a match. We would then access keys out-of-bounds.
-    // Generally, we're deep inside UB land here.
-    // Autovectorization will likely not do this.
-    // TODO: Guarantee that fingerprint can never be 0 is somewhat unrealistic?
-    lookup_fp[15] = 0;
-
     uint8x16_t fingerprint_matches = vceqq_u8(fp_vector, lookup_fp);
 
     return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(matching_fingerprints));
@@ -162,7 +155,7 @@ struct naive_scalar_key_only_find {
 struct autovec_scalar_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
     // TODO: This code is okay-ish C++ for autovectorization.
-    // However, clang is currently broken when converting the 16-bit char array to uint128_t,
+    // However, clang is currently broken when extracting values from the 16-byte char array as a bigger int
     // (https://github.com/llvm/llvm-project/issues/59937)
     // and GCC doesn't autovectorize the match-from-fingerprints logic well
     uint8_t* __restrict fingerprint_data = std::assume_aligned<16>(bucket.fingerprints.data());
