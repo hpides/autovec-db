@@ -160,6 +160,7 @@ struct autovec_scalar_find {
     // However, clang is currently broken when extracting values from the 16-byte char array as a bigger int
     // (https://github.com/llvm/llvm-project/issues/59937)
     // and GCC doesn't autovectorize the match-from-fingerprints logic well
+    // playground: https://godbolt.org/z/Eoezxh9E3
     uint8_t* __restrict fingerprint_data = std::assume_aligned<16>(bucket.fingerprints.data());
 
     alignas(16) std::array<uint8_t, 16> matches;
