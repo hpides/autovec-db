@@ -33,9 +33,11 @@ void BM_hash_bucket_get(benchmark::State& state) {
   HashBucket bucket{};
   std::mt19937 rng{std::random_device{}()};
   std::uniform_int_distribution<> index_distribution(0, NUM_ENTRIES - 1);
+  std::uniform_int_distribution<uint64_t> existing_key_distribution(0, 1e19);
+  std::uniform_int_distribution<uint64_t> non_existing_key_distribution(1e19 + 1);
   std::ranges::generate(bucket.fingerprints, [&]() { return rng() | 128; });
   bucket.fingerprints[NUM_ENTRIES] = 0;
-  std::ranges::generate(bucket.entries, [&]() { return Entry{rng(), rng()}; });
+  std::ranges::generate(bucket.entries, [&]() { return Entry{existing_key_distribution(rng), rng()}; });
 
   std::array<size_t, NUM_ENTRIES> lookup_indices;
   std::ranges::generate(lookup_indices, [&]() {
@@ -60,7 +62,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
   std::array<uint64_t, NUM_ENTRIES> lookup_keys{};
   std::ranges::transform(lookup_indices, lookup_fps.begin(), [&](size_t index) {
     if (index == -1ull) {
-      return rng();  // In theory, this can also collide. We don't want that to happen. In practice, it doesn't happen.
+      return non_existing_key_distribution(rng);
     } else {
       return bucket.entries[index].key;
     }
