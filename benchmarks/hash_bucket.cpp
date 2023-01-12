@@ -119,12 +119,11 @@ BENCHMARK(BM_hash_bucket_get<neon_find_bytes>)->BM_ARGS;
 #elif defined(__x86_64__)
 struct x86_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    // TODO
-    uint8_t* fingerprints = bucket.fingerprints.data();
-    (void)fingerprints;
-    (void)key;
-    (void)fingerprint;
-    return 13;
+    __m128i* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
+    __m128i lookup_fp = _mm_set1_epi8(fingerprint);
+    __m128i fingerprint_matches = _mm_cmpeq_epi8(*fp_vector, lookup_fp);
+
+    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(fingerprint_matches));
   }
 };
 
