@@ -29,12 +29,12 @@ static_assert(sizeof(HashBucket) == 256, "Hash Bucket should be 256 Byte for thi
 
 template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
-  FindFn find_fn{};
-  HashBucket bucket{};
   std::mt19937 rng{std::random_device{}()};
   std::uniform_int_distribution<> index_distribution(0, NUM_ENTRIES - 1);
   std::uniform_int_distribution<uint64_t> existing_key_distribution(0, 1e19);
   std::uniform_int_distribution<uint64_t> non_existing_key_distribution(1e19 + 1);
+
+  HashBucket bucket{};
   std::ranges::generate(bucket.fingerprints, [&]() { return rng() | 128; });
   bucket.fingerprints[NUM_ENTRIES] = 0;
   std::ranges::generate(bucket.entries, [&]() { return Entry{existing_key_distribution(rng), rng()}; });
@@ -60,7 +60,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
   });
 
   std::array<uint64_t, NUM_ENTRIES> lookup_keys{};
-  std::ranges::transform(lookup_indices, lookup_fps.begin(), [&](size_t index) {
+  std::ranges::transform(lookup_indices, lookup_keys.begin(), [&](size_t index) {
     if (index == -1ull) {
       return non_existing_key_distribution(rng);
     } else {
@@ -72,6 +72,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
   benchmark::DoNotOptimize(lookup_keys.data());
   benchmark::DoNotOptimize(lookup_fps.data());
 
+  FindFn find_fn{};
   for (auto _ : state) {
     for (size_t i = 0; i < NUM_ENTRIES; ++i) {
       const uint64_t value = find_fn(bucket, lookup_keys[i], lookup_fps[i]);
@@ -96,7 +97,7 @@ inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, ui
     }
 
     // Clear all bits in the 0b11111111-byte
-    fingerprint_matches &= ~(255ul << trailing_zeros);
+    fingerprint_matches &= ~(static_cast<__uint128_t>(255) << trailing_zeros);
   }
   return NO_MATCH;
 }
@@ -110,7 +111,7 @@ struct neon_find_bytes {
     uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
     uint8x16_t fingerprint_matches = vceqq_u8(fp_vector, lookup_fp);
 
-    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(matching_fingerprints));
+    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(fingerprint_matches));
   }
 };
 BENCHMARK(BM_hash_bucket_get<neon_find_bytes>)->BM_ARGS;
