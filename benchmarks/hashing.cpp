@@ -119,8 +119,10 @@ struct neon_hash {
     return result;
   }
 };
+BENCHMARK(BM_hashing<neon_hash>)->BM_ARGS;
+#endif
 
-#elif defined(__x86_64__)
+#if defined(__x86_64__)
 struct x86_128_hash {
   using VecT = __m128i;
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
@@ -168,6 +170,7 @@ struct x86_128_hash {
   }
 };
 BENCHMARK(BM_hashing<x86_128_hash>)->BM_ARGS;
+#endif
 
 #if defined(AVX512_AVAILABLE)
 struct x86_512_hash {
@@ -194,8 +197,6 @@ struct x86_512_hash {
   }
 };
 BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
-#endif
-
 #endif
 
 struct naive_scalar_hash {
@@ -247,10 +248,6 @@ struct vector_hash {
     return result;
   }
 };
-
-#if defined(__aarch64__)
-BENCHMARK(BM_hashing<neon_hash>)->BM_ARGS;
-#endif
 
 BENCHMARK(BM_hashing<naive_scalar_hash>)->BM_ARGS;
 BENCHMARK(BM_hashing<autovec_scalar_hash>)->BM_ARGS;
