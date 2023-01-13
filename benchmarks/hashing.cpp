@@ -171,7 +171,6 @@ struct x86_128_hash {
 };
 BENCHMARK(BM_hashing<x86_128_hash>)->BM_ARGS;
 
-
 struct x86_256_hash {
   using VecT = __m256i;
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
