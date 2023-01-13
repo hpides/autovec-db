@@ -58,17 +58,15 @@ void BM_hashing(benchmark::State& state) {
     correct_hash_values[i] = calculate_hash(keys_to_hash[i], required_bits);
   }
 
-  HashArray hashes{};
+  benchmark::DoNotOptimize(keys_to_hash.data());
 
   // Do one sanity check that we get the correct results.
-  hash_fn(keys_to_hash, required_bits, &hashes);
-  if (hashes != correct_hash_values) {
+  if (hash_fn(keys_to_hash, required_bits) != correct_hash_values) {
     throw std::runtime_error{"Bad hash calculation"};
   }
 
   for (auto _ : state) {
-    benchmark::DoNotOptimize(keys_to_hash.data());
-    hash_fn(keys_to_hash, required_bits, &hashes);
+    const HashArray hashes = hash_fn(keys_to_hash, required_bits);
     benchmark::DoNotOptimize(hashes);
   }
 }
@@ -102,9 +100,10 @@ struct neon_hash {
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
   static_assert(NUM_KEYS % KEYS_PER_ITERATION == 0);
 
-  void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
+  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
     auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
-    auto* typed_output_ptr = reinterpret_cast<VecT*>(result->data());
+    auto* typed_output_ptr = reinterpret_cast<VecT*>(result.data());
 
     VecT factor_vec = vdupq_n_u64(MULTIPLY_CONSTANT);
     uint64_t shift = 64 - required_bits;
@@ -116,6 +115,8 @@ struct neon_hash {
       auto shifted = vshlq_u64(multiplied, shift_vec);
       typed_output_ptr[i] = shifted;
     }
+
+    return result;
   }
 };
 
@@ -149,9 +150,10 @@ struct x86_128_hash {
     return _mm_add_epi64(product_lo_lo, product_hi_lo_pairs_shuffled);
   }
 
-  void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
+  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
     auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
-    auto* typed_output_ptr = reinterpret_cast<VecT*>(result->data());
+    auto* typed_output_ptr = reinterpret_cast<VecT*>(result.data());
 
     VecT factor_vec = _mm_set1_epi64x(MULTIPLY_CONSTANT);
     uint64_t shift = 64 - required_bits;
@@ -161,6 +163,8 @@ struct x86_128_hash {
       auto shifted = _mm_srli_epi64(multiplied, shift);
       typed_output_ptr[i] = shifted;
     }
+
+    return result;
   }
 };
 BENCHMARK(BM_hashing<x86_128_hash>)->BM_ARGS;
@@ -171,9 +175,11 @@ struct x86_512_hash {
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
   static_assert(NUM_KEYS % KEYS_PER_ITERATION == 0);
 
-  void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
+  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
+
     auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
-    auto* typed_output_ptr = reinterpret_cast<VecT*>(result->data());
+    auto* typed_output_ptr = reinterpret_cast<VecT*>(result.data());
 
     VecT factor_vec = _mm512_set1_epi64(MULTIPLY_CONSTANT);
     uint64_t shift = 64 - required_bits;
@@ -183,6 +189,8 @@ struct x86_512_hash {
       auto shifted = _mm512_srli_epi64(multiplied, shift);
       typed_output_ptr[i] = shifted;
     }
+
+    return result;
   }
 };
 BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
@@ -194,22 +202,27 @@ struct naive_scalar_hash {
 #if GCC_COMPILER
   __attribute__((optimize("no-tree-vectorize")))
 #endif
-  void
-  operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
+  HashArray
+  operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
 #if CLANG_COMPILER
 #pragma clang loop vectorize(disable)
 #endif
     for (size_t i = 0; i < NUM_KEYS; ++i) {
-      (*result)[i] = calculate_hash(keys_to_hash[i], required_bits);
+      result[i] = calculate_hash(keys_to_hash[i], required_bits);
     }
+
+    return result;
   }
 };
 
 struct autovec_scalar_hash {
-  void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
+  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
     for (size_t i = 0; i < NUM_KEYS; ++i) {
-      (*result)[i] = calculate_hash(keys_to_hash[i], required_bits);
+      result[i] = calculate_hash(keys_to_hash[i], required_bits);
     }
+    return result;
   }
 };
 
@@ -221,15 +234,17 @@ struct vector_hash {
   using VecT = typename GccVec<uint64_t, VECTOR_BYTES>::T;
   static_assert(sizeof(VecT) == VECTOR_BYTES);
 
-  void operator()(const HashArray& keys_to_hash, uint64_t required_bits, HashArray* __restrict result) {
+  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
     const VecT* vec_keys = reinterpret_cast<const VecT*>(keys_to_hash.data());
 
-    auto hashes = reinterpret_cast<VecT*>(result);
+    auto hashes = reinterpret_cast<VecT*>(result.data());
 
     uint64_t shift = 64 - required_bits;
     for (size_t i = 0; i < NUM_KEYS / NUM_VECTOR_ELEMENTS; ++i) {
       hashes[i] = (vec_keys[i] * MULTIPLY_CONSTANT) >> shift;
     }
+    return result;
   }
 };
 
