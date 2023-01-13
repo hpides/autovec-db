@@ -11,6 +11,7 @@
 
 namespace {
 
+// TODO: maybe this is more efficient with  a magic multiply (https://zeux.io/2022/09/02/vpexpandb-neon-z3/)
 uint8_t gcc_vec_get_mask(simd::GccVec<uint32_t, 16>::T matches) {
   constexpr simd::GccVec<uint32_t, 16>::T and_mask = {1, 2, 4, 8};
   auto single_bits = matches & and_mask;
