@@ -304,7 +304,10 @@ BENCHMARK(BM_hashing<vector_hash<64>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<128>>)->BM_ARGS;
 
 // TODO: figure out why these are so fast
-// Richard: My first impression from the assembly is that the multiplication works differently.
+// Richard: On x86, clang generates different code for the 64-bit multiplication
+// that is ~20% faster. I'd guess it's due to microarchitecture insight?
+// Should we give this as a win to clang? If we were using agner fogs library,
+// we wouldn't get that performance.
 BENCHMARK(BM_hashing<vector_hash<256>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<512>>)->BM_ARGS;
 
