@@ -170,6 +170,55 @@ struct x86_128_hash {
   }
 };
 BENCHMARK(BM_hashing<x86_128_hash>)->BM_ARGS;
+
+
+struct x86_256_hash {
+  using VecT = __m256i;
+  static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
+  static_assert(NUM_KEYS % KEYS_PER_ITERATION == 0);
+
+  __m256i multiply(__m256i a, __m256i b) {
+    // logic same as in https://github.com/vectorclass/version2/blob/master/vectori256.h#L3358-L3365
+    // 8x32: 0, 0, 0, 0, 0, 0, 0, 0
+    __m256i zero = _mm256_setzero_si256();
+
+    // 8x32: b0Hi, b0Lo, b1Hi, b1Lo, b2Hi, b2Lo, b3Hi, b3Lo
+    __m256i b_hi_lo_swapped = _mm256_shuffle_epi32(b, 0xB1);
+
+    // 8x32: a0Lo * b0Hi, a0Hi * b0Lo, a1Lo * b1Hi, a1Hi * b1Lo, a2Lo * b2Hi, a2Hi * b2Lo, a3Lo * b3Hi, a3Hi * b3Lo
+    __m256i product_hi_lo_pairs = _mm256_mullo_epi32(a, b_hi_lo_swapped);
+
+    // 4x32: a0Lo b0Hi + a0Hi b0Lo, a1Lo b1Hi + a1Hi b1Lo, 0, 0, a2Lo b2Hi + a2Hi b2Lo, a3Lo b3Hi + a3Hi b3Lo, 0, 0
+    __m256i hi_lo_pair_product_sums = _mm256_hadd_epi32(product_hi_lo_pairs, zero);
+
+    // 4x32: 0, a0Lo b0Hi + a0Hi b0Lo, 0, a1Lo b1Hi + a1Hi b1Lo, 0, a2Lo b2Hi + a2Hi b2Lo, 0, a3Lo b3Hi + a3Hi b3Lo
+    __m256i product_hi_lo_pairs_shuffled = _mm256_shuffle_epi32(hi_lo_pair_product_sums, 0x73);
+
+    // 2x64: a0Lo * b0Lo, a1Lo * b1Lo, a2Lo * b2Lo, b3Lo * b3Lo
+    __m256i product_lo_lo = _mm256_mul_epu32(a, b);
+
+    // 4x64: a0Lo b0Lo + (a0Lo b0Hi + a0Hi b0Lo) << 32, a1Lo b1Lo + (a1Lo b1Hi + a1Hi b1Lo) << 32, ...
+    return _mm256_add_epi64(product_lo_lo, product_hi_lo_pairs_shuffled);
+  }
+
+  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
+    auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
+    auto* typed_output_ptr = reinterpret_cast<VecT*>(result.data());
+
+    VecT factor_vec = _mm256_set1_epi64x(MULTIPLY_CONSTANT);
+    uint64_t shift = 64 - required_bits;
+
+    for (size_t i = 0; i < NUM_KEYS / KEYS_PER_ITERATION; ++i) {
+      auto multiplied = multiply(typed_input_ptr[i], factor_vec);
+      auto shifted = _mm256_srli_epi64(multiplied, shift);
+      typed_output_ptr[i] = shifted;
+    }
+
+    return result;
+  }
+};
+BENCHMARK(BM_hashing<x86_256_hash>)->BM_ARGS;
 #endif
 
 #if defined(AVX512_AVAILABLE)
@@ -254,7 +303,8 @@ BENCHMARK(BM_hashing<autovec_scalar_hash>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<64>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<128>>)->BM_ARGS;
 
-// TODO: figure out why these are wrong or why they are so fast!
+// TODO: figure out why these are so fast
+// Richard: My first impression from the assembly is that the multiplication works differently.
 BENCHMARK(BM_hashing<vector_hash<256>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<512>>)->BM_ARGS;
 
