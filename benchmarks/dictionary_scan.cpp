@@ -12,7 +12,7 @@
 namespace {
 
 // TODO: maybe this is more efficient with  a magic multiply (https://zeux.io/2022/09/02/vpexpandb-neon-z3/)
-uint8_t gcc_vec_get_mask(simd::GccVec<uint32_t, 16>::T matches) {
+[[maybe_unused]] uint8_t gcc_vec_get_mask(simd::GccVec<uint32_t, 16>::T matches) {
   constexpr simd::GccVec<uint32_t, 16>::T and_mask = {1, 2, 4, 8};
   auto single_bits = matches & and_mask;
   alignas(16) std::array<uint32_t, 4> single_bit_array{};
@@ -20,7 +20,7 @@ uint8_t gcc_vec_get_mask(simd::GccVec<uint32_t, 16>::T matches) {
   return std::accumulate(single_bit_array.begin(), single_bit_array.end(), 0u);
 }
 
-uint16_t gcc_vec_get_mask(simd::GccVec<uint32_t, 64>::T matches) {
+[[maybe_unused]] uint16_t gcc_vec_get_mask(simd::GccVec<uint32_t, 64>::T matches) {
   constexpr simd::GccVec<uint32_t, 64>::T and_mask = {1,   2,   4,    8,    16,   32,   64,    128,
                                                       256, 512, 1024, 2048, 4096, 8192, 16384, 32768};
   auto single_bits = matches & and_mask;
@@ -60,8 +60,20 @@ struct naive_scalar_scan {
   }
 };
 
-struct autovec_scalar_find {
-  // TODO
+struct autovec_scalar_scan {
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict column_data = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    RowId num_matching_rows = 0;
+
+#pragma GCC unroll 4
+    for (RowId row = 0; row < NUM_ROWS; ++row) {
+      output[num_matching_rows] = row;
+      num_matching_rows += column_data[row] < filter_val;
+    }
+    return num_matching_rows;
+  }
 };
 
 struct vector_128_scan {
@@ -80,7 +92,7 @@ struct vector_128_scan {
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wignored-attributes"
-  static constexpr std::array<ShuffleVec, 16> MATCHES_TO_SHUFFLE_MASK = {
+  alignas(64) static constexpr std::array<ShuffleVec, 16> MATCHES_TO_SHUFFLE_MASK = {
       ShuffleVec{/*0000*/ SDC, SDC, SDC, SDC}, ShuffleVec{/*0001*/ 0, SDC, SDC, SDC},
       ShuffleVec{/*0010*/ 1, SDC, SDC, SDC},   ShuffleVec{/*0011*/ 0, 1, SDC, SDC},
       ShuffleVec{/*0100*/ 2, SDC, SDC, SDC},   ShuffleVec{/*0101*/ 0, 2, SDC, SDC},
@@ -102,7 +114,8 @@ struct vector_128_scan {
     constexpr size_t iterations = NUM_ROWS / NUM_MATCHES_PER_VECTOR;
     for (RowId i = 0; i < iterations; ++i) {
       const RowId start_row = NUM_MATCHES_PER_VECTOR * i;
-      RowVec row_ids = {start_row + 0, start_row + 1, start_row + 2, start_row + 3};
+      constexpr RowVec row_offsets{0, 1, 2, 3};
+      RowVec row_ids = simd::broadcast<RowVec>(start_row) + row_offsets;
 
       auto rows_to_match = simd::load<DictVec>(rows + start_row);
       DictVec matches = rows_to_match < filter_vec;
@@ -154,7 +167,7 @@ struct vector_512_scan {
     return masks;
   }
 
-  std::array<ShuffleVec8, 256> MATCHES_TO_SHUFFLE_MASK = generate_shuffle_masks();
+  alignas(64) std::array<ShuffleVec8, 256> MATCHES_TO_SHUFFLE_MASK = generate_shuffle_masks();
 #pragma GCC diagnostic pop
 
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
@@ -168,9 +181,8 @@ struct vector_512_scan {
     constexpr size_t iterations = NUM_ROWS / NUM_MATCHES_PER_VECTOR;
     for (RowId i = 0; i < iterations; ++i) {
       const RowId start_row = NUM_MATCHES_PER_VECTOR * i;
-      RowVec row_ids = {start_row + 0,  start_row + 1,  start_row + 2,  start_row + 3, start_row + 4,  start_row + 5,
-                        start_row + 6,  start_row + 7,  start_row + 8,  start_row + 9, start_row + 10, start_row + 11,
-                        start_row + 12, start_row + 13, start_row + 14, start_row + 15};
+      constexpr RowVec row_offsets{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+      RowVec row_ids = simd::broadcast<RowVec>(start_row) + row_offsets;
 
       auto rows_to_match = simd::load<DictVec>(rows + start_row);
       DictVec matches = rows_to_match < filter_vec;
@@ -245,9 +257,8 @@ struct vector_512_scan {
 //     constexpr size_t iterations = NUM_ROWS / NUM_MATCHES_PER_VECTOR;
 //     for (RowId i = 0; i < iterations; ++i) {
 //       const RowId start_row = NUM_MATCHES_PER_VECTOR * i;
-//       RowVec row_ids = {start_row + 0,  start_row + 1,  start_row + 2,  start_row + 3, start_row + 4,  start_row + 5,
-//                         start_row + 6,  start_row + 7,  start_row + 8,  start_row + 9, start_row + 10, start_row +
-//                         11, start_row + 12, start_row + 13, start_row + 14, start_row + 15};
+//       constexpr RowVec row_offsets{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+//       RowVec row_ids = simd::broadcast<RowVec>(start_row) + row_offsets;
 //
 //       auto rows_to_match = simd::load<DictVec>(rows + start_row);
 //       DictVec matches = rows_to_match < filter_vec;
@@ -313,7 +324,8 @@ struct neon_scan {
     constexpr size_t iterations = NUM_ROWS / NUM_MATCHES_PER_VECTOR;
     for (RowId i = 0; i < iterations; ++i) {
       const RowId start_row = NUM_MATCHES_PER_VECTOR * i;
-      RowVec row_ids = {start_row + 0, start_row + 1, start_row + 2, start_row + 3};
+      constexpr RowVec row_offsets = {0, 1, 2, 3};
+      RowVec row_ids = vmovq_n_u32(start_row) + row_offsets;
 
       DictVec rows_to_match = vld1q_u32(rows + start_row);
       DictVec matches = vcltq_u32(rows_to_match, filter_vec);
@@ -340,6 +352,7 @@ struct neon_scan {
 
 #include <immintrin.h>
 
+// Important: _mm*_mask_compressstore[u]() is not available until AVX512. So anything older must run without it.
 struct x86_128_scan {
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
 
@@ -354,6 +367,9 @@ struct x86_128_scan {
 
 #include <immintrin.h>
 
+enum class x86_512_scan_strategy { COMPRESSSTORE, COMPRESS_PLUS_STORE };
+
+template <x86_512_scan_strategy STRATEGY>
 struct x86_512_scan {
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m512i) / sizeof(DictEntry);
   static_assert(NUM_MATCHES_PER_VECTOR == 16);
@@ -367,15 +383,24 @@ struct x86_512_scan {
 
     static_assert(NUM_ROWS % (NUM_MATCHES_PER_VECTOR) == 0);
     constexpr size_t iterations = NUM_ROWS / NUM_MATCHES_PER_VECTOR;
+    const __m512i row_id_offsets = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+
     for (RowId i = 0; i < iterations; ++i) {
       const RowId start_row = NUM_MATCHES_PER_VECTOR * i;
-      __m512i row_ids =
-          _mm512_set_epi32(start_row + 15, start_row + 14, start_row + 13, start_row + 12, start_row + 11,
-                           start_row + 10, start_row + 9, start_row + 8, start_row + 7, start_row + 6, start_row + 5,
-                           start_row + 4, start_row + 3, start_row + 2, start_row + 1, start_row + 0);
+      // x86: Doing this instead of {start_row + 0, start_row + 1, ...} has a 3x performance improvement! Also applies
+      // to the gcc-vec versions.
+      const __m512i row_ids = _mm512_set1_epi32(start_row) + row_id_offsets;
+
       __m512i rows_to_match = _mm512_load_epi32(rows + start_row);
       __mmask16 matches = _mm512_cmplt_epi32_mask(rows_to_match, filter_vec);
-      _mm512_mask_compressstoreu_epi32(output + num_matching_rows, matches, row_ids);
+
+      if constexpr (STRATEGY == x86_512_scan_strategy::COMPRESSSTORE) {
+        _mm512_mask_compressstoreu_epi32(output + num_matching_rows, matches, row_ids);
+      } else if (STRATEGY == x86_512_scan_strategy::COMPRESS_PLUS_STORE) {
+        auto compressed_rows = _mm512_mask_compress_epi32(row_ids, matches, row_ids);
+        _mm512_storeu_epi32(output + num_matching_rows, compressed_rows);
+      }
+
       num_matching_rows += std::popcount(matches);
     }
 
@@ -443,10 +468,11 @@ void BM_dictionary_scan(benchmark::State& state) {
   }
 }
 
-// #define BM_ARGS Unit(benchmark::kMicrosecond)->Arg(0)->Arg(33)->Arg(50)->Arg(66)->Arg(100)
+// #define BM_ARGS Unit(benchmark::kMicrosecond)->Arg(0)->Arg(33)->Arg(50)->Arg(66)->Arg(100)->ReportAggregatesOnly()
 #define BM_ARGS Unit(benchmark::kMicrosecond)->Arg(50)
 
 BENCHMARK(BM_dictionary_scan<naive_scalar_scan>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<autovec_scalar_scan>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_128_scan>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_512_scan>)->BM_ARGS;
 
@@ -456,7 +482,8 @@ BENCHMARK(BM_dictionary_scan<neon_scan>)->BM_ARGS;
 
 #if defined(__x86_64__)
 // BENCHMARK(BM_dictionary_scan<x86_128_scan>)->BM_ARGS;
-BENCHMARK(BM_dictionary_scan<x86_512_scan>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_512_scan<x86_512_scan_strategy::COMPRESSSTORE>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_512_scan<x86_512_scan_strategy::COMPRESS_PLUS_STORE>>)->BM_ARGS;
 #endif
 
 BENCHMARK_MAIN();

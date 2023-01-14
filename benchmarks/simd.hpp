@@ -9,13 +9,14 @@ namespace simd {
 namespace detail {
 
 #if defined(__aarch64__)
-template <typename VectorT>
-inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
-  constexpr uint8_t VECTOR_SIZE = sizeof(VectorT);
-  constexpr uint8_t ELEMENT_SIZE = sizeof(decltype(vec[0]));
 
-  // All 64 Bit vectors have the same flow, but require the instruction without `q` in it.
-  static_assert(VECTOR_SIZE == 16, "Can only do NEON shuffle for 16 Byte vectors.");
+// All 64 Bit vectors have the same flow, but require the instruction without `q` in it.
+template <typename VectorT>
+concept NeonShuffleVec = sizeof(VectorT) == 16;
+
+template <NeonShuffleVec VectorT>
+inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
+  constexpr uint8_t ELEMENT_SIZE = sizeof(decltype(vec[0]));
 
   if constexpr (ELEMENT_SIZE == 1) {
     // Case: uint8x16_t. This can be represented with one instruction.
@@ -86,6 +87,18 @@ inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
 }
 #endif
 
+template <typename VectorT>
+inline VectorT builtin_shuffle_vector(VectorT vec, VectorT mask) {
+#if GCC_COMPILER
+  // The vector element size must be equal, so we convert the mask to VecT. This is a no-op if they are the same.
+  // Note that this conversion can have a high runtime cost, so consider using the correct type.
+  // See: https://godbolt.org/z/fdvGsWqPa
+  return __builtin_shuffle(vec, __builtin_convertvector(mask, VectorT));
+#else
+  return __builtin_shufflevector(vec, mask);
+#endif
+}
+
 }  // namespace detail
 
 template <typename ElementT, size_t VECTOR_SIZE_IN_BYTES, size_t ALIGNMENT = VECTOR_SIZE_IN_BYTES>
@@ -128,17 +141,14 @@ struct ClangBitmask {
 template <typename VectorT, typename MaskT>
 inline VectorT shuffle_vector(VectorT vec, MaskT mask) {
 #if defined(__aarch64__)
-  // This specialized method gives a ~60% speedup compared to clang's builtin (on M1 MacBook Pro).
-  return detail::neon_shuffle_vector(vec, mask);
+  if constexpr (detail::NeonShuffleVec<VectorT>) {
+    // This specialized method gives a ~60% speedup compared to clang's builtin in the dict scan (on M1 MacBook Pro).
+    return detail::neon_shuffle_vector(vec, mask);
+  } else {
+    return detail::builtin_shuffle_vector(vec, mask);
+  }
 #else
-#if GCC_COMPILER
-  // The vector element size must be equal, so we convert the mask to VecT. This is a no-op if they are the same.
-  // Note that this conversion can have a high runtime cost, so consider using the correct type.
-  // See: https://godbolt.org/z/fdvGsWqPa
-  return __builtin_shuffle(vec, __builtin_convertvector(mask, VectorT));
-#else
-  return __builtin_shufflevector(vec, mask);
-#endif
+  return detail::builtin_shuffle_vector(vec, mask);
 #endif
 }
 
