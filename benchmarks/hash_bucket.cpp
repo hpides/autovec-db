@@ -209,6 +209,7 @@ struct autovec_scalar_find {
     // playground: https://godbolt.org/z/Eoezxh9E3
     uint8_t* __restrict fingerprint_data = std::assume_aligned<16>(bucket.fingerprints.data());
 
+    // Intentionally not initialized to avoid zeroing memory, as we write all elements directly anyway.
     alignas(16) std::array<uint8_t, 16> matches;
     for (size_t i = 0; i < 16; ++i) {
       matches[i] = fingerprint_data[i] == fingerprint ? 0xff : 0;
