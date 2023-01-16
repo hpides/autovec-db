@@ -134,6 +134,26 @@ struct neon_bytemask_find {
   }
 };
 BENCHMARK(BM_hash_bucket_get<neon_bytemask_find>)->BM_ARGS;
+
+struct neon_bitmask_find {
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    uint8x16_t fp_vector = vld1q_u8(bucket.fingerprints.data());
+
+    // Broadcast the fingerprint to compare against.
+    uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
+    uint8x16_t fingerprint_matches = vceqq_u8(fp_vector, lookup_fp);
+
+    constexpr uint8x16_t bit_mask = {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128};
+    uint16_t matches = 0;
+    uint8x16_t masked_matches = vandq_u8(fingerprint_matches, bit_mask);
+    matches |= static_cast<uint16_t>(vaddv_u8(vget_low_u8(masked_matches)));
+    matches |= static_cast<uint16_t>(vaddv_u8(vget_high_u8(masked_matches))) << 8;
+
+    return key_matches_from_fingerprint_matches_bit(bucket, key, matches);
+  }
+};
+BENCHMARK(BM_hash_bucket_get<neon_bitmask_find>)->BM_ARGS;
+
 #endif
 
 #if defined(__x86_64__)
