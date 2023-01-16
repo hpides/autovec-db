@@ -35,12 +35,14 @@ void BM_hash_bucket_get(benchmark::State& state) {
   std::uniform_int_distribution<uint64_t> non_existing_key_distribution(1e19 + 1);
 
   HashBucket bucket{};
-  std::ranges::generate(bucket.fingerprints, [&]() { return rng() | 128; });
+  std::generate(bucket.fingerprints.begin(), bucket.fingerprints.end(), [&]() { return rng() | 128; });
   bucket.fingerprints[NUM_ENTRIES] = 0;
-  std::ranges::generate(bucket.entries, [&]() { return Entry{existing_key_distribution(rng), rng()}; });
+  std::generate(bucket.entries.begin(), bucket.entries.end(), [&]() {
+    return Entry{existing_key_distribution(rng), rng()};
+  });
 
   std::array<size_t, NUM_ENTRIES> lookup_indices;
-  std::ranges::generate(lookup_indices, [&]() {
+  std::generate(lookup_indices.begin(), lookup_indices.end(), [&]() {
     if (rng() % 2 == 0) {
       // TODO: If this gives us too much deviation on the benchmarking results, we might want to have less random
       // indices here. Currently, I get a stddev of 5% to 15% on vector_find
@@ -51,7 +53,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
   });
 
   std::array<uint8_t, NUM_ENTRIES> lookup_fps;
-  std::ranges::transform(lookup_indices, lookup_fps.begin(), [&](size_t index) {
+  std::transform(lookup_indices.begin(), lookup_indices.end(), lookup_fps.begin(), [&](size_t index) {
     if (index == -1ull) {
       return static_cast<uint8_t>(rng() | 128);  // can collide, this is realistic
     } else {
@@ -60,7 +62,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
   });
 
   std::array<uint64_t, NUM_ENTRIES> lookup_keys{};
-  std::ranges::transform(lookup_indices, lookup_keys.begin(), [&](size_t index) {
+  std::transform(lookup_indices.begin(), lookup_indices.end(), lookup_keys.begin(), [&](size_t index) {
     if (index == -1ull) {
       return non_existing_key_distribution(rng);
     } else {
