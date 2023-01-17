@@ -45,7 +45,6 @@ struct autovec_scalar_scan {
 
     RowId num_matching_rows = 0;
 
-#pragma GCC unroll 4
     for (RowId row = 0; row < NUM_ROWS; ++row) {
       output[num_matching_rows] = row;
       num_matching_rows += column_data[row] < filter_val;
@@ -118,7 +117,6 @@ struct vector_128_scan {
         simd::unaligned_store(output + num_matching_rows, compressed_rows);
         num_matching_rows += std::popcount(mask);
       } else if (STRATEGY == vector_128_scan_strategy::PREDICATION) {
-#pragma GCC unroll 4
         for (RowId row = start_row; row < start_row + 4; ++row) {
           output[num_matching_rows] = row;
           num_matching_rows += matches[row] & 1;
@@ -200,7 +198,6 @@ struct vector_512_scan {
     size_t current_offset = 0;
     alignas(64) std::array<ShuffleVecElementT, 16> raw_shuffle_mask{};
 
-#pragma GCC unroll 4
     for (uint8_t i = 0; i < 16; i += 4) {
       uint8_t current_mask = (mask >> i) & 0xF;
       ShuffleVec4 current_shuffle_mask = VecScan::MATCHES_TO_SHUFFLE_MASK[current_mask] + i;
