@@ -63,6 +63,7 @@ struct vector_128_scan {
 
   static constexpr size_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
 
+  // TODO: remove the __aarch64__ here with better Neon shuffle
 #if GCC_COMPILER || defined(__aarch64__)
   // We need 4 values here, and they could be of uint8_t to save memory. However, this has a conversion cost before the
   // shuffle in GCC and Neon, so we use the larger uint32_t to avoid that runtime cost (~60% in one experiment!)
@@ -134,6 +135,7 @@ struct vector_512_scan {
   static constexpr size_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
   static_assert(NUM_MATCHES_PER_VECTOR == 16);
 
+  // TODO: remove the __aarch64__ here with better Neon shuffle
 #if GCC_COMPILER || defined(__aarch64__)
   // We need 16 values here, and they could be of uint8_t to save memory. However, this has a conversion cost before the
   // shuffle, so we use the larger uint32_t to avoid that runtime cost.
