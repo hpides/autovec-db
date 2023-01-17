@@ -165,7 +165,7 @@ struct bitset_bitmask {
 };
 
 template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
-struct gcc_vector_bitmask {
+struct gcc_vector_naive_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
   using ElementT = typename InputT::DataT;
@@ -194,10 +194,6 @@ struct gcc_vector_bitmask {
       }
       return result;
     }
-
-    // TODO: GCC Version mit NEON-Bitmask-Trick
-    // Idee: Maske als Constexpr vom Compiler berechnen lassen
-    // Außenrum muss einfach ne Schleife, die 1, 2, 4, oder 8 mal läuft
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
@@ -205,9 +201,78 @@ struct gcc_vector_bitmask {
   }
 };
 template <size_t VECTOR_BITS>
-struct sized_gcc_vector_bitmask {
+struct sized_gcc_vector_naive_bitmask {
   template <typename InputT_>
-  using Benchmark = gcc_vector_bitmask<VECTOR_BITS, InputT_>;
+  using Benchmark = gcc_vector_naive_bitmask<VECTOR_BITS, InputT_>;
+};
+
+// Produces e.g. {1, 2, 4, 8} for (uint64x4) or {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128} for uint8x16
+template <typename VecT, std::unsigned_integral ElementT>
+VecT positional_single_bit_mask() {
+  VecT result{};
+
+  size_t vector_elements = sizeof(VecT) / sizeof(ElementT);
+
+  ElementT current_value = 1;
+  for (size_t i = 0; i < vector_elements; ++i) {
+    result[i] = current_value;
+    if (current_value <= std::numeric_limits<ElementT>::max() / 2) {
+      current_value *= 2;
+    } else {
+      current_value = 1;
+    }
+  }
+
+  return result;
+}
+
+template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
+struct gcc_vector_custom_bitmask {
+  using MaskT = MaskT_;
+  using InputT = InputT_;
+  using ElementT = typename InputT::DataT;
+
+  static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
+  static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
+
+  using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
+
+  struct GetSubresulMask {
+    using InputT = VecT;
+
+    MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
+      // We'd want this to be constexpr, but we can't:
+      // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101651
+      VecT element_masks = positional_single_bit_mask<VecT, ElementT>();
+
+      auto subresult_bool_vec = subinput1 == subinput2;
+      auto single_bits_set = subresult_bool_vec & element_masks;
+
+      alignas(alignof(VecT)) std::array<ElementT, NUM_VECTOR_ELEMENTS> single_bit_array{};
+      std::memcpy(&single_bit_array, &single_bits_set, sizeof(single_bit_array));
+
+      constexpr size_t ELEMENTS_COMBINED_PER_ITERATION = sizeof(ElementT) * 8;
+
+      MaskT result = 0;
+      for (size_t start_element = 0; start_element < NUM_VECTOR_ELEMENTS;
+           start_element += ELEMENTS_COMBINED_PER_ITERATION) {
+        auto sub_bits_begin = single_bit_array.begin() + start_element;
+        auto sub_bits_end = std::min(sub_bits_begin + ELEMENTS_COMBINED_PER_ITERATION, single_bit_array.end());
+        MaskT sub_accumulation_result = std::accumulate(sub_bits_begin, sub_bits_end, MaskT{0});
+        result |= sub_accumulation_result << start_element;
+      }
+      return result;
+    }
+  };
+
+  MaskT operator()(const InputT& input1, const InputT& input2) {
+    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+  }
+};
+template <size_t VECTOR_BITS>
+struct sized_gcc_vector_custom_bitmask {
+  template <typename InputT_>
+  using Benchmark = gcc_vector_custom_bitmask<VECTOR_BITS, InputT_>;
 };
 
 #if defined(__aarch64__)
@@ -476,7 +541,8 @@ using Input_16B_as_2x8B = AlignedArray<uint64_t, 2, 16>;
 BENCHMARK_WITH_16B_INPUT(naive_scalar_bitmask);
 BENCHMARK_WITH_16B_INPUT(autovec_scalar_bitmask);
 BENCHMARK_WITH_16B_INPUT(bitset_bitmask);
-BENCHMARK_WITH_16B_INPUT(sized_gcc_vector_bitmask<128>::Benchmark);
+BENCHMARK_WITH_16B_INPUT(sized_gcc_vector_naive_bitmask<128>::Benchmark);
+BENCHMARK_WITH_16B_INPUT(sized_gcc_vector_custom_bitmask<128>::Benchmark);
 
 #if CLANG_COMPILER
 BENCHMARK_WITH_16B_INPUT(sized_clang_vector_bitmask<128>::Benchmark);
@@ -496,9 +562,12 @@ BENCHMARK_WITH_16B_INPUT(x86_128_bitmask);
 BENCHMARK_WITH_64B_INPUT(naive_scalar_bitmask);
 BENCHMARK_WITH_64B_INPUT(autovec_scalar_bitmask);
 BENCHMARK_WITH_64B_INPUT(bitset_bitmask);
-BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_bitmask<128>::Benchmark);
-BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_bitmask<256>::Benchmark);
-BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_bitmask<512>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_naive_bitmask<128>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_naive_bitmask<256>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_naive_bitmask<512>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_custom_bitmask<128>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_custom_bitmask<256>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_custom_bitmask<512>::Benchmark);
 
 #if CLANG_COMPILER
 BENCHMARK_WITH_64B_INPUT(sized_clang_vector_bitmask<128>::Benchmark);
