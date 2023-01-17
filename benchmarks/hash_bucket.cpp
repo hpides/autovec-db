@@ -118,8 +118,8 @@ inline uint64_t key_matches_from_fingerprint_matches_bit(HashBucket& bucket, uin
       return bucket.entries[match_pos].value;
     }
 
-    // Clear the fingerprint match bit
-    fingerprint_matches &= ~(1 << trailing_zeros);
+    // Clear the fingerprint match bit (which is now the least significant set bit)
+    fingerprint_matches &= fingerprint_matches - 1;
   }
   return NO_MATCH;
 }
