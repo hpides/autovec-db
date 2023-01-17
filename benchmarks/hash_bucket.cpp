@@ -83,6 +83,10 @@ void BM_hash_bucket_get(benchmark::State& state) {
       benchmark::DoNotOptimize(value);
     }
   }
+
+  // TODO: When adding this, I get a 3x slowdown on x86-bitmask. Why? Initial perf inspection didn't show anything...
+  // state.counters["TimePerLookup"] = benchmark::Counter(state.iterations() * NUM_LOOKUPS_PER_ITERATION,
+  //                                                      benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, uint64_t key,
