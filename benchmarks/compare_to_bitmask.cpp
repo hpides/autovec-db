@@ -194,6 +194,10 @@ struct gcc_vector_bitmask {
       }
       return result;
     }
+
+    // TODO: GCC Version mit NEON-Bitmask-Trick
+    // Idee: Maske als Constexpr vom Compiler berechnen lassen
+    // Außenrum muss einfach ne Schleife, die 1, 2, 4, oder 8 mal läuft
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
@@ -340,8 +344,13 @@ struct x86_256_avx2_bitmask {
           // cast to unsigned is necessary because otherwise the widening will be sign-expanding, filling in 1-bits
           return static_cast<uint32_t>(_mm256_movemask_epi8(vector_compare_result));
         } else if constexpr (sizeof(ElementT) == 2) {
-          // TODO: On i5-6200U, the clang-vector-variant is slightly faster (extract to XMM, 2 vpacksswb, 2 movmsk, 1
-          // shift, 1 or).
+#if 1
+          // This is what clang generates for the vector<256> variant, it's ~12% faster than the version below
+          __m128i lower_half = _mm256_extracti128_si256(vector_compare_result, 0);
+          __m128i upper_half = _mm256_extracti128_si256(vector_compare_result, 1);
+          __m128i comparison_packed_to_bytes = _mm_packs_epi16(lower_half, upper_half);
+          return _mm_movemask_epi8(comparison_packed_to_bytes);
+#else
           // avx2 shuffle is super weird: You can only shuffle within a lane, indices are within the current lane.
           __m256i lower_byte_shuffle_mask = _mm256_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0,
                                                             -1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0);
@@ -351,6 +360,7 @@ struct x86_256_avx2_bitmask {
           // 0b00000000 11011001 00000000 11011111
           uint16_t result = two_half_results | (two_half_results >> 8);
           return result;
+#endif
         } else if constexpr (sizeof(ElementT) == 4) {
           return _mm256_movemask_ps(reinterpret_cast<__m256>(vector_compare_result));
         } else if constexpr (sizeof(ElementT) == 8) {
