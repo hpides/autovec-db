@@ -10,6 +10,7 @@
 #include "common.hpp"
 
 static constexpr uint64_t NUM_ENTRIES = 15;
+static constexpr uint64_t NUM_LOOKUPS_PER_ITERATION = 1024 * 4;
 static constexpr uint64_t NO_MATCH = std::numeric_limits<uint64_t>::max();
 
 struct Entry {
@@ -25,7 +26,7 @@ struct HashBucket {
 
 static_assert(sizeof(HashBucket) == 256, "Hash Bucket should be 256 Byte for this benchmark");
 
-#define BM_ARGS Repetitions(10)->MinTime(0.1)->ReportAggregatesOnly()
+#define BM_ARGS Unit(benchmark::kNanosecond)
 
 template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
@@ -41,18 +42,16 @@ void BM_hash_bucket_get(benchmark::State& state) {
     return Entry{existing_key_distribution(rng), rng()};
   });
 
-  std::array<size_t, NUM_ENTRIES> lookup_indices;
+  std::array<size_t, NUM_LOOKUPS_PER_ITERATION> lookup_indices;
   std::generate(lookup_indices.begin(), lookup_indices.end(), [&]() {
     if (rng() % 2 == 0) {
-      // TODO: If this gives us too much deviation on the benchmarking results, we might want to have less random
-      // indices here. Currently, I get a stddev of 5% to 15% on vector_find
       return index_distribution(rng);  // With ~50% probability, we look up a random existing element.
     } else {
       return -1;  // otherwise, we attempt to lookup a non-existing key
     }
   });
 
-  std::array<uint8_t, NUM_ENTRIES> lookup_fps;
+  std::array<uint8_t, NUM_LOOKUPS_PER_ITERATION> lookup_fps;
   std::transform(lookup_indices.begin(), lookup_indices.end(), lookup_fps.begin(), [&](size_t index) {
     if (index == -1ull) {
       return static_cast<uint8_t>(rng() | 128);  // can collide, this is realistic
@@ -61,7 +60,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
     }
   });
 
-  std::array<uint64_t, NUM_ENTRIES> lookup_keys{};
+  std::array<uint64_t, NUM_LOOKUPS_PER_ITERATION> lookup_keys;
   std::transform(lookup_indices.begin(), lookup_indices.end(), lookup_keys.begin(), [&](size_t index) {
     if (index == -1ull) {
       return non_existing_key_distribution(rng);
@@ -76,7 +75,7 @@ void BM_hash_bucket_get(benchmark::State& state) {
 
   FindFn find_fn{};
   for (auto _ : state) {
-    for (size_t i = 0; i < NUM_ENTRIES; ++i) {
+    for (size_t i = 0; i < NUM_LOOKUPS_PER_ITERATION; ++i) {
       const uint64_t value = find_fn(bucket, lookup_keys[i], lookup_fps[i]);
       assert((lookup_indices[i] == -1ull && value == NO_MATCH) ||
              (lookup_indices[i] != -1ull && value == bucket.entries[lookup_indices[i]].value));
