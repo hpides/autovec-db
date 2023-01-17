@@ -173,7 +173,7 @@ struct gcc_vector_bitmask {
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
 
-  using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
+  using VecT = typename simd::GccVec<ElementT, VECTOR_BYTES>::T;
 
   struct GetSubresulMask {
     using InputT = VecT;
@@ -213,7 +213,7 @@ struct neon_bitmask {
   using InputT = InputT_;
   using ElementT = typename InputT::DataT;
 
-  using VecT = NeonVecT<sizeof(ElementT)>::T;
+  using VecT = typename NeonVecT<sizeof(ElementT)>::T;
 
   struct GetSubresulMask {
     using InputT = VecT;
