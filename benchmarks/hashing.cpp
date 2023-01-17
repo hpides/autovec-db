@@ -221,7 +221,7 @@ struct x86_256_hash {
 BENCHMARK(BM_hashing<x86_256_hash>)->BM_ARGS;
 #endif
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 struct x86_512_hash {
   using VecT = __m512i;
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);

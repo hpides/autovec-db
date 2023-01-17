@@ -368,7 +368,7 @@ struct x86_256_avx2_bitmask {
   }
 };
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct x86_512_bitmask {
   using MaskT = MaskT_;
@@ -505,7 +505,7 @@ BENCHMARK_WITH_64B_INPUT(x86_128_bitmask);
 BENCHMARK_WITH_64B_INPUT(x86_256_avx2_bitmask);
 #endif
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 BENCHMARK_WITH_64B_INPUT(x86_512_bitmask);
 #endif
 

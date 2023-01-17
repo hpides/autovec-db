@@ -63,9 +63,9 @@ struct vector_128_scan {
 
   static constexpr size_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
 
-#if GCC_COMPILER
+#if GCC_COMPILER || defined(__aarch64__)
   // We need 4 values here, and they could be of uint8_t to save memory. However, this has a conversion cost before the
-  // shuffle in GCC, so we use the larger uint32_t to avoid that runtime cost (~60% in one experiment!)
+  // shuffle in GCC and Neon, so we use the larger uint32_t to avoid that runtime cost (~60% in one experiment!)
   using ShuffleVec = RowVec;
   static constexpr RowId SDC = -1;  // SDC == SHUFFLE_DONT_CARE
 #else
@@ -134,7 +134,7 @@ struct vector_512_scan {
   static constexpr size_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
   static_assert(NUM_MATCHES_PER_VECTOR == 16);
 
-#if GCC_COMPILER
+#if GCC_COMPILER || defined(__aarch64__)
   // We need 16 values here, and they could be of uint8_t to save memory. However, this has a conversion cost before the
   // shuffle, so we use the larger uint32_t to avoid that runtime cost.
   using ShuffleVec8 = simd::GccVec<uint32_t, 32>::T;
@@ -385,7 +385,7 @@ struct x86_128_scan {
 
 #endif
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 
 #include <immintrin.h>
 

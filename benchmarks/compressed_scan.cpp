@@ -277,7 +277,7 @@ struct x86_128_scan {
 };
 #endif
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 struct x86_512_scan {
   static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
   static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
@@ -612,7 +612,7 @@ BENCHMARK(BM_scanning<neon_scan>)->BM_ARGS;
 BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
 #endif
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 BENCHMARK(BM_scanning<x86_512_scan>)->BM_ARGS;
 #endif
 
