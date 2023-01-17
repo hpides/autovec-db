@@ -6,6 +6,20 @@
 
 namespace simd {
 
+template <typename ElementT_, size_t VECTOR_SIZE_IN_BYTES, size_t ALIGNMENT = VECTOR_SIZE_IN_BYTES>
+struct GccVec {
+  using ElementT = ElementT_;
+  using T __attribute__((vector_size(VECTOR_SIZE_IN_BYTES), aligned(ALIGNMENT))) = ElementT;
+  using UnalignedT __attribute__((vector_size(VECTOR_SIZE_IN_BYTES), aligned(1))) = ElementT;
+};
+
+#if CLANG_COMPILER
+template <size_t NUM_BITS>
+struct ClangBitmask {
+  using T __attribute__((ext_vector_type(NUM_BITS))) = bool;
+};
+#endif
+
 namespace detail {
 
 #if defined(__aarch64__)
@@ -87,8 +101,8 @@ inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
 }
 #endif
 
-template <typename VectorT>
-inline VectorT builtin_shuffle_vector(VectorT vec, VectorT mask) {
+template <typename VectorT, typename MaskT>
+inline VectorT builtin_shuffle_vector(VectorT vec, MaskT mask) {
 #if GCC_COMPILER
   // The vector element size must be equal, so we convert the mask to VecT. This is a no-op if they are the same.
   // Note that this conversion can have a high runtime cost, so consider using the correct type.
@@ -99,20 +113,49 @@ inline VectorT builtin_shuffle_vector(VectorT vec, VectorT mask) {
 #endif
 }
 
+// TODO: maybe this is more efficient with a magic multiply (https://zeux.io/2022/09/02/vpexpandb-neon-z3/)
+template <typename MaskT, typename VectorT>
+MaskT gcc_comparison_to_bitmask(VectorT matches) {
+  using ElementT = decltype(VectorT{}[0]);
+  constexpr size_t NUM_ELEMENTS = sizeof(VectorT) / sizeof(ElementT);
+
+  static_assert(sizeof(MaskT) * 8 >= NUM_ELEMENTS, "Number of elements greater than size of mask");
+
+  // TODO: I want to do this, but I'm not quite sure how to handle the constexpr lambda return value.
+
+  //  constexpr auto get_and_mask = [] {
+  //    if constexpr (NUM_ELEMENTS == 1) {
+  //      return VectorT{1};
+  //    } else if (NUM_ELEMENTS == 2) {
+  //      return VectorT{1, 2};
+  //    } else if (NUM_ELEMENTS == 4) {
+  //      return VectorT{1, 2, 4, 8};
+  //    } else if (NUM_ELEMENTS == 8) {
+  //      using XX = GccVec<ElementT, sizeof(ElementT) * NUM_ELEMENTS>::T;
+  //      return XX{1, 2, 4, 8, 16, 32, 64, 128};
+  //    } else if (NUM_ELEMENTS == 16 && sizeof(ElementT) >= 2) {
+  //      using XX = GccVec<ElementT, sizeof(ElementT) * NUM_ELEMENTS>::T;
+  //      return XX{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768};
+  //    } else {
+  //      static_assert(always_false<VectorT>, "GCC is not your friend. Use clang :)");
+  //    }
+  //  };
+  //
+  //  constexpr VectorT and_mask = get_and_mask();
+  //  auto single_bits = matches & and_mask;
+  //
+  //  alignas(alignof(VectorT)) std::array<ElementT, NUM_ELEMENTS> single_bit_array{};
+  //  std::memcpy(&single_bit_array, &single_bits, sizeof(single_bit_array));
+  //  return std::accumulate(single_bit_array.begin(), single_bit_array.end(), 0u);
+
+  MaskT mask = 0;
+  for (size_t i = 0; i < NUM_ELEMENTS; ++i) {
+    mask |= matches[i] ? static_cast<MaskT>(1) << i : 0;
+  }
+  return mask;
+}
+
 }  // namespace detail
-
-template <typename ElementT, size_t VECTOR_SIZE_IN_BYTES, size_t ALIGNMENT = VECTOR_SIZE_IN_BYTES>
-struct GccVec {
-  using T __attribute__((vector_size(VECTOR_SIZE_IN_BYTES), aligned(ALIGNMENT))) = ElementT;
-  using UnalignedT __attribute__((vector_size(VECTOR_SIZE_IN_BYTES), aligned(1))) = ElementT;
-};
-
-#if CLANG_COMPILER
-template <size_t NUM_BITS>
-struct ClangBitmask {
-  using T __attribute__((ext_vector_type(NUM_BITS))) = bool;
-};
-#endif
 
 /**
  * Shuffling vectors still seems to be a key pain point when using GCC vector intrinsics. There is different behavior in
@@ -171,6 +214,18 @@ template <typename VectorT>
 inline void unaligned_store(void* ptr, VectorT value) {
   using UnalignedVector __attribute__((aligned(1))) = VectorT;
   *reinterpret_cast<UnalignedVector*>(ptr) = value;
+}
+
+template <typename VectorT, size_t NUM_MASK_BITS = sizeof(VectorT) / sizeof(VectorT{}[0]),
+          typename MaskT = typename UnsignedInt<NUM_MASK_BITS / 8>::T>
+inline MaskT comparison_to_bitmask(VectorT vec) {
+#if CLANG_COMPILER
+  using MaskVecT __attribute__((ext_vector_type(NUM_MASK_BITS))) = bool;
+  MaskVecT mask = __builtin_convertvector(vec, MaskVecT);
+  return reinterpret_cast<MaskT&>(mask);
+#else
+  return detail::gcc_comparison_to_bitmask<MaskT>(vec);
+#endif
 }
 
 }  // namespace simd
