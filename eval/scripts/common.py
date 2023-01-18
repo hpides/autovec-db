@@ -11,7 +11,7 @@ pd.options.mode.chained_assignment = None  # default='warn'
 # Plotting
 #######################################
 
-FS = 20
+FONT_SIZE = 20
 MILLION = 1_000_000
 SINGLE_FIG_WIDTH = 5
 SINGLE_FIG_HEIGHT = 3.5
@@ -19,7 +19,7 @@ SINGLE_FIG_SIZE = (SINGLE_FIG_WIDTH, SINGLE_FIG_HEIGHT)
 DOUBLE_FIG_WIDTH = 10
 DOUBLE_FIG_HEIGHT = 3.5
 DOUBLE_FIG_SIZE = (DOUBLE_FIG_WIDTH, DOUBLE_FIG_HEIGHT)
-IMG_TYPES = ['.png', '.svg']
+IMG_TYPES = ('.png', '.svg')
 
 
 INTEL_BLUE = '#0071c5'
@@ -52,7 +52,7 @@ def get_color(variant_name, use_black_white=False):
 
 def INIT_PLOT():
     matplotlib.rcParams.update({
-        'font.size': FS,
+        'font.size': FONT_SIZE,
         'svg.fonttype': 'none',
     })
 
@@ -79,7 +79,7 @@ def BAR(variant):
     }
 
 
-def RESIZE_TICKS(ax, x=FS, y=FS):
+def RESIZE_TICKS(ax, x=FONT_SIZE, y=FONT_SIZE):
     for tick in ax.xaxis.get_major_ticks():
         tick.label.set_fontsize(x)
     for tick in ax.yaxis.get_major_ticks():
@@ -110,10 +110,7 @@ def FIG_LEGEND(fig):
     fig.tight_layout()
 
 
-def SAVE_PLOT(plot_path, img_types=None):
-    if img_types is None:
-        img_types = IMG_TYPES
-
+def SAVE_PLOT(plot_path, img_types=IMG_TYPES):
     plot_paths = []
     for img_type in img_types:
         img_path = f"{plot_path}{img_type}"
