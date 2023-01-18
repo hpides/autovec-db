@@ -35,19 +35,17 @@ if __name__ == '__main__':
 
     x86_ax.set_ylabel("Speedup by factor x")
 
-    # x86_ax.set_ylim(0, 55)
-    # x86_ax.set_yticks(range(0, 55, 20))
+    x86_ax.set_ylim(0, 8.5)
+    x86_ax.set_yticks(range(0, 9, 2))
 
-    # m1_ax.set_ylim(0, 30)
-    # m1_ax.set_yticks(range(0, 30, 10))
+    m1_ax.set_ylim(0, 16)
+    m1_ax.set_yticks(range(0, 16, 5))
 
 
     HATCH_WIDTH()
     for ax in (x86_ax, m1_ax):
         Y_GRID(ax)
         HIDE_BORDERS(ax)
-
-    # FIG_LEGEND(fig)
 
     plot_path = os.path.join(plot_dir, "compressed_scan")
     SAVE_PLOT(plot_path)
