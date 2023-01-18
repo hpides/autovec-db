@@ -4,7 +4,7 @@ sys.path.append(os.path.dirname(sys.path[0]))
 from common import *
 
 
-def plot_hashing(ax, data, color):
+def plot_hashing(ax, data):
     for _, row in data.iterrows():
         variant = row['name']
         ax.bar(variant, row['runtime'], **BAR(variant))
@@ -25,8 +25,8 @@ if __name__ == '__main__':
 
     fig, (x86_ax, m1_ax) = plt.subplots(1, 2, figsize=DOUBLE_FIG_SIZE)
 
-    plot_hashing(x86_ax, x86_results, INTEL_BLUE)
-    plot_hashing(m1_ax, m1_results, APPLE_GREY)
+    plot_hashing(x86_ax, x86_results)
+    plot_hashing(m1_ax, m1_results)
 
     x86_ax.set_title("a) x86")
     m1_ax.set_title("b) M1")
