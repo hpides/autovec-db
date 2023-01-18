@@ -7,7 +7,7 @@
 #include "benchmark/benchmark.h"
 #include "common.hpp"
 
-#define BM_ARGS Repetitions(1)->Arg(27)
+#define BM_ARGS Arg(27)
 
 // TODO(lawben): Check which number here makes sense. We need: #keys / (#vector-lanes / 8B key) registers.
 //                 --> 128 keys = 16 zmm | 32 ymm | 64 xmm registers
