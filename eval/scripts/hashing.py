@@ -5,7 +5,10 @@ from common import *
 
 
 def plot_hashing(ax, data, color):
-    ax.bar(data['name'], data['runtime'], width=0.7, color=color)
+    for _, row in data.iterrows():
+        variant = row['name']
+        ax.bar(variant, row['runtime'], **BAR(variant))
+
     ax.set_xticks([x - 0.2 for x in range(len(data['name']))], data['name'], rotation=75, ha='center')
     ax.tick_params(axis='x', which=u'both',length=0)
     ax.set_xticklabels(data['name'], rotation=75)
@@ -30,11 +33,11 @@ if __name__ == '__main__':
 
     x86_ax.set_ylabel("Runtime (ns)")
 
-    x86_ax.set_ylim(0, 75)
-    x86_ax.set_yticks(range(0, 75, 20))
+    x86_ax.set_ylim(0, 55)
+    x86_ax.set_yticks(range(0, 55, 20))
 
     m1_ax.set_ylim(0, 30)
-    m1_ax.set_yticks(range(0, 31, 10))
+    m1_ax.set_yticks(range(0, 30, 10))
 
 
     HATCH_WIDTH()

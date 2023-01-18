@@ -26,6 +26,30 @@ INTEL_BLUE = '#0071c5'
 APPLE_GREY = '#555555'
 
 
+VARIANT_COLOR_BLACK_WHITE = {
+    "scalar": '#f0f0f0',
+    "autovec": '#bdbdbd',
+    "vec": '#737373',
+    "x86": '#252525',
+    "neon": '#252525',
+}
+
+VARIANT_COLOR = {
+    "scalar": '#ffffb2',
+    "autovec": '#fecc5c',
+    "vec": '#fd8d3c',
+    "x86": '#e31a1c',
+    "neon": '#e31a1c',
+}
+
+def get_color(variant_name, use_black_white=False):
+    colors = VARIANT_COLOR_BLACK_WHITE if use_black_white else VARIANT_COLOR
+    for name, color in colors.items():
+        if name in variant_name:
+            return color
+    raise RuntimeError(f"No color found for variant: {variant_name}")
+
+
 def INIT_PLOT():
     matplotlib.rcParams.update({
         'font.size': FS,
@@ -46,8 +70,13 @@ def INIT(args):
     return result_path, plot_dir
 
 
-def BAR_X_TICKS_POS(bar_width, num_bars, num_xticks):
-    return [i - (bar_width / 2) + ((num_bars * bar_width) / 2) for i in range(num_xticks)]
+def BAR(variant):
+    return {
+        "color": get_color(variant),
+        "edgecolor": 'black',
+        "width": 0.7,
+        "lw": 2
+    }
 
 
 def RESIZE_TICKS(ax, x=FS, y=FS):
@@ -113,8 +142,10 @@ def clean_up_results(results):
     results.name = results.name.replace({r"BM_.*?<(.*)>/.*" : r'\1'}, regex=True)
 
     results.name = results.name.str.replace("_hash", "")
-    results.name = results.name.str.replace("<", "_")
+    results.name = results.name.str.replace("<", "-")
     results.name = results.name.str.replace(">", "")
     results.name = results.name.str.replace("naive_", "")
     results.name = results.name.str.replace("autovec_scalar", "autovec")
+    results.name = results.name.str.replace("_", "-")
+    results.name = results.name.str.replace("vector", "vec")
     return results
