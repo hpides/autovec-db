@@ -108,7 +108,7 @@ struct clang_vector_bitmask {
 
   using SingleComparisonResultT = typename UnsignedInt<sizeof(MaskVecT)>::T;
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
@@ -133,7 +133,7 @@ struct clang_vector_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 
@@ -175,7 +175,7 @@ struct gcc_vector_naive_bitmask {
 
   using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
@@ -197,7 +197,7 @@ struct gcc_vector_naive_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 template <size_t VECTOR_BITS>
@@ -237,7 +237,7 @@ struct gcc_vector_custom_bitmask {
 
   using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
@@ -266,7 +266,7 @@ struct gcc_vector_custom_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 template <size_t VECTOR_BITS>
@@ -284,7 +284,7 @@ struct neon_bitmask {
 
   using VecT = NeonVecT<sizeof(ElementT)>::T;
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
@@ -313,7 +313,7 @@ struct neon_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 #endif
@@ -330,7 +330,7 @@ struct x86_128_bitmask {
   using VecT = __m128i;
   static constexpr size_t NUM_VECTOR_ELEMENTS = sizeof(VecT) / sizeof(ElementT);
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
@@ -370,7 +370,7 @@ struct x86_128_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 
@@ -388,7 +388,7 @@ struct x86_256_avx2_bitmask {
   using VecT = __m256i;
   static constexpr size_t NUM_VECTOR_ELEMENTS = sizeof(VecT) / sizeof(ElementT);
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
@@ -439,7 +439,7 @@ struct x86_256_avx2_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 
