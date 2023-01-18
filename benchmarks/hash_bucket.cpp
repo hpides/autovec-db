@@ -91,20 +91,35 @@ void BM_hash_bucket_get(benchmark::State& state) {
 
 inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, uint64_t key,
                                                           __uint128_t fingerprint_matches) {
-  while (fingerprint_matches != 0) {
-    int trailing_zeros = std::countr_zero(fingerprint_matches);
-    // 1B = 8bit per truthness-value
-    int match_pos = (trailing_zeros / 8);
-
-    // We expect fingerprint collisions to be unlikely
-    if (bucket.entries[match_pos].key == key) [[likely]] {
-      return bucket.entries[match_pos].value;
-    }
-
-    // Clear all bits in the 0b11111111-byte
-    fingerprint_matches &= ~(static_cast<__uint128_t>(255) << trailing_zeros);
+  if (fingerprint_matches == 0) {
+    return NO_MATCH;
   }
-  return NO_MATCH;
+
+  auto process_half = [&](uint64_t half, size_t bit_offset) {
+    while (half != 0) {
+      int trailing_zeros = std::countr_zero(half);
+
+      // We know for a fact that trailing_zeros is a multiple of 8, but clang 15 doesn't properly optimize, and still
+      // produces shift-right 3, shift-left 4 to clear the lower 3 bits. Thus, we compute the address manually without
+      // the division.
+      static_assert(sizeof(bucket.entries[0]) % 8 == 0);
+      auto& bucket_entry = *reinterpret_cast<Entry*>(reinterpret_cast<std::byte*>(bucket.entries.data()) +
+                                                     (trailing_zeros + bit_offset) * (sizeof(Entry) / 8));
+
+      if (bucket_entry.key == key) [[likely]] {
+        return bucket_entry.value;
+      }
+
+      half &= ~(255ul << trailing_zeros);
+    }
+    return NO_MATCH;
+  };
+
+  auto result = process_half(static_cast<uint64_t>(fingerprint_matches), 0);
+  if (result != NO_MATCH) {
+    return result;
+  }
+  return process_half(static_cast<uint64_t>(fingerprint_matches >> 64), 64);
 }
 
 inline uint64_t key_matches_from_fingerprint_matches_bit(HashBucket& bucket, uint64_t key,
