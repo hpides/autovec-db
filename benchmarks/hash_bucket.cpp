@@ -10,7 +10,7 @@
 #include "common.hpp"
 
 static constexpr uint64_t NUM_ENTRIES = 15;
-static constexpr uint64_t NUM_LOOKUPS_PER_ITERATION = 1024 * 4;
+static constexpr uint64_t NUM_LOOKUPS_PER_ITERATION = 1024;
 static constexpr uint64_t NO_MATCH = std::numeric_limits<uint64_t>::max();
 
 struct Entry {
@@ -245,11 +245,9 @@ BENCHMARK(BM_hash_bucket_get<autovec_scalar_find>)->BM_ARGS;
 
 struct vector_bytemask_find {
   using vec8x16 = GccVec<uint8_t, 16>::T;
-  using vec64x2 = GccVec<uint64_t, 16>::T;
 
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
     vec8x16 fp_vector = *reinterpret_cast<vec8x16*>(bucket.fingerprints.data());
-
     vec8x16 lookup_fp = broadcast<vec8x16>(fingerprint);
     vec8x16 matching_fingerprints = fp_vector == lookup_fp;
 
@@ -261,7 +259,6 @@ BENCHMARK(BM_hash_bucket_get<vector_bytemask_find>)->BM_ARGS;
 #if CLANG_COMPILER
 struct vector_bitmask_find {
   using vec8x16 = GccVec<uint8_t, 16>::T;
-  using vec64x2 = GccVec<uint64_t, 16>::T;
   using vec1x16 = ClangBitmask<16>::T;
 
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
