@@ -20,6 +20,7 @@ DOUBLE_FIG_WIDTH = 10
 DOUBLE_FIG_HEIGHT = 3.5
 DOUBLE_FIG_SIZE = (DOUBLE_FIG_WIDTH, DOUBLE_FIG_HEIGHT)
 IMG_TYPES = ['.png', '.svg']
+DEFAULT_LABEL_ROTATION = 75
 
 
 INTEL_BLUE = '#0071c5'
@@ -42,12 +43,25 @@ VARIANT_COLOR = {
     "neon": '#e31a1c',
 }
 
-def get_color(variant_name, use_black_white=False):
+def GET_COLOR(variant_name, use_black_white=False):
     colors = VARIANT_COLOR_BLACK_WHITE if use_black_white else VARIANT_COLOR
     for name, color in colors.items():
         if name in variant_name:
             return color
     raise RuntimeError(f"No color found for variant: {variant_name}")
+
+
+def ALIGN_ROTATED_X_LABELS(ax, offset=-10):
+    # Taken from: https://stackoverflow.com/a/67459618/4505331
+    from matplotlib.transforms import ScaledTranslation
+
+    dx, dy = offset, 0
+    fig = ax.get_figure()
+    offset = ScaledTranslation(dx / fig.dpi, dy / fig.dpi, fig.dpi_scale_trans)
+
+    # Apply offset to all xticklabels
+    for label in ax.xaxis.get_majorticklabels():
+        label.set_transform(label.get_transform() + offset)
 
 
 def INIT_PLOT():
@@ -72,7 +86,7 @@ def INIT(args):
 
 def BAR(variant):
     return {
-        "color": get_color(variant),
+        "color": GET_COLOR(variant),
         "edgecolor": 'black',
         "width": 0.7,
         "lw": 2
@@ -135,13 +149,13 @@ def get_results(result_dir, file_name, columns=('name', 'cpu_time')):
     return df
 
 
-def clean_up_results(results):
+def clean_up_results(results, bm_suffix):
     results = results[results.name.str.contains("mean")]
 
     # Generic BM_... regex replace
-    results.name = results.name.replace({r"BM_.*?<(.*)>/.*" : r'\1'}, regex=True)
+    results.name = results.name.replace({r"BM_.*?<(.*)>.*mean" : r'\1'}, regex=True)
 
-    results.name = results.name.str.replace("_hash", "")
+    results.name = results.name.str.replace(f"_{bm_suffix}", "")
     results.name = results.name.str.replace("<", "-")
     results.name = results.name.str.replace(">", "")
     results.name = results.name.str.replace("naive_", "")
