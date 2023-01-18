@@ -3,35 +3,12 @@ import os
 sys.path.append(os.path.dirname(sys.path[0]))
 from common import *
 
-import pandas as pd
-pd.options.mode.chained_assignment = None  # default='warn'
-
-INTEL_BLUE = '#0071c5'
-APPLE_GREY = '#555555'
-
 
 def plot_hashing(ax, data, color):
-    ax.bar(data['name'], data['runtime'], width=0.6, color=color)
+    ax.bar(data['name'], data['runtime'], width=0.7, color=color)
     ax.set_xticks([x - 0.2 for x in range(len(data['name']))], data['name'], rotation=75, ha='center')
     ax.tick_params(axis='x', which=u'both',length=0)
     ax.set_xticklabels(data['name'], rotation=75)
-
-
-def get_results(result_dir, file_name):
-    return pd.read_csv(f"{result_dir}/{file_name}")[['name', 'cpu_time']].rename(columns={"cpu_time": "runtime"})
-
-def clean_up_results(results):
-    results = results[results.name.str.contains("mean")]
-
-    # Generic BM_... regex replace
-    results.name = results.name.replace({r"BM_.*?<(.*)>/.*" : r'\1'}, regex=True)
-
-    results.name = results.name.str.replace("_hash", "")
-    results.name = results.name.str.replace("<", "_")
-    results.name = results.name.str.replace(">", "")
-    results.name = results.name.str.replace("naive_", "")
-    results.name = results.name.str.replace("autovec_scalar", "autovec")
-    return results
 
 
 if __name__ == '__main__':
@@ -53,11 +30,11 @@ if __name__ == '__main__':
 
     x86_ax.set_ylabel("Runtime (ns)")
 
-    # page_in_ax.set_ylim(0, 30)
-    # page_in_ax.set_yticks(range(0, 31, 5))
+    x86_ax.set_ylim(0, 75)
+    x86_ax.set_yticks(range(0, 75, 20))
 
-    # page_out_ax.set_ylim(0, 30)
-    # page_out_ax.set_yticks(range(0, 31, 5))
+    m1_ax.set_ylim(0, 30)
+    m1_ax.set_yticks(range(0, 31, 10))
 
 
     HATCH_WIDTH()
@@ -69,4 +46,3 @@ if __name__ == '__main__':
 
     plot_path = os.path.join(plot_dir, "hashing")
     SAVE_PLOT(plot_path)
-    PRINT_PLOT_PATHS()
