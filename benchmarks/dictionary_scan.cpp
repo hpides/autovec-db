@@ -43,6 +43,7 @@ struct autovec_scalar_scan {
     // The naive version should be autovectorizable with clang, but they currently don't do this
     // see https://github.com/llvm/llvm-project/issues/42210
     // According to the issue, ICX can autovectorize this.
+    // Godbolt playground: https://godbolt.org/z/aahTPczdr
 
     const DictEntry* __restrict column_data = column.aligned_data();
     RowId* __restrict output = matching_rows->aligned_data();
