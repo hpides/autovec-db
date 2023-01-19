@@ -64,6 +64,14 @@ def ALIGN_ROTATED_X_LABELS(ax, offset=-10):
         label.set_transform(label.get_transform() + offset)
 
 
+def ASSERT_VARIANCE_IS_LOW(results, limit_percent=3):
+    stddev = results[results.name.str.contains("_stddev")].copy().reset_index()
+    mean = results[results.name.str.contains("_mean")].copy().reset_index()
+    variance = (stddev['runtime'] / mean['runtime']) * 100
+    if (variance > limit_percent).any():
+        print(f"Variance too high in benchmarks: {variance}")
+
+
 def INIT_PLOT():
     matplotlib.rcParams.update({
         'font.size': FONT_SIZE,
@@ -147,6 +155,8 @@ def get_results(result_dir, file_name, columns=('name', 'cpu_time')):
 
 
 def clean_up_results(results, bm_suffix):
+    ASSERT_VARIANCE_IS_LOW(results)
+
     results = results[results.name.str.contains("mean")]
 
     # Generic BM_... regex replace
