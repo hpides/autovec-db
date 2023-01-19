@@ -21,6 +21,8 @@ static constexpr uint64_t SCALE_FACTOR = 6000;  // With a 168 base, this gives u
 static constexpr uint64_t NUM_TUPLES = NUM_BASE_TUPLES * SCALE_FACTOR;
 static constexpr size_t COMPRESS_BITS = 9;
 
+#define BM_ARGS Unit(benchmark::kMicrosecond)
+
 namespace {
 
 using CompressedColumn = AlignedData<uint64_t, 64>;
@@ -115,6 +117,267 @@ void BM_scanning(benchmark::State& state) {
   }
 }
 
+///////////////////////
+///     SCALAR      ///
+///////////////////////
+struct naive_scalar_scan {
+  void operator()(const uint64_t* input, uint32_t* output, size_t num_tuples) {
+    constexpr size_t U64_BITS = sizeof(uint64_t) * 8;
+    constexpr uint64_t MASK = (1 << COMPRESS_BITS) - 1;
+    uint64_t bits_left = U64_BITS;
+
+    size_t block_idx = 0;
+
+    for (size_t i = 0; i < num_tuples; ++i) {
+      const size_t bits_for_current_value = U64_BITS - bits_left;
+      output[i] |= (input[block_idx] >> bits_for_current_value) & MASK;
+
+      // Did not get all bits for value, check next block to get them.
+      if (bits_left < COMPRESS_BITS) {
+        // Shift remaining bits to correct position for bit-OR.
+        output[i] |= (input[++block_idx] << bits_left) & MASK;
+        bits_left += U64_BITS;
+      }
+
+      bits_left -= COMPRESS_BITS;
+
+      if (bits_left == 0) {
+        block_idx++;
+        bits_left = U64_BITS;
+      }
+    }
+  }
+};
+
+BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
+
+///////////////////////
+///    AUTOVEC      ///
+///////////////////////
+struct autovec_scalar_scan {
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    constexpr size_t U64_BITS = sizeof(uint64_t) * 8;
+    constexpr uint64_t MASK = (1 << COMPRESS_BITS) - 1;
+    uint64_t bits_left = U64_BITS;
+
+    size_t block_idx = 0;
+
+    for (size_t i = 0; i < num_tuples; ++i) {
+      const size_t bits_for_current_value = U64_BITS - bits_left;
+      output[i] |= (input[block_idx] >> bits_for_current_value) & MASK;
+
+      // Did not get all bits for value, check next block to get them.
+      if (bits_left < COMPRESS_BITS) {
+        // Shift remaining bits to correct position for bit-OR.
+        output[i] |= (input[++block_idx] << bits_left) & MASK;
+        bits_left += U64_BITS;
+      }
+
+      bits_left -= COMPRESS_BITS;
+
+      if (bits_left == 0) {
+        block_idx++;
+        bits_left = U64_BITS;
+      }
+    }
+  }
+};
+
+BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
+
+///////////////////////
+///     VECTOR      ///
+///////////////////////
+struct vector_128_scan {
+  static constexpr size_t VALUES_PER_ITERATION = 4;
+  static constexpr size_t ITERATIONS_PER_BATCH = (16 * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
+  static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;
+  static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
+  static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
+
+  static constexpr size_t VECTOR_SIZE_IN_BYTES = 16;
+
+  using VecU8x16 = GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
+  using UnalignedVecU8x16 = GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
+  using VecU32x4 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
+
+  // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
+  static constexpr VecU8x16 SHUFFLE_MASKS[3] = {
+      VecU8x16{0, 1, 2, 3, 1, 2, 3, 5, 2, 3, 4, 5, 3, 4, 5, 6},
+      VecU8x16{4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10},
+      VecU8x16{8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14},
+  };
+
+  // Note: the masks are inverted, i.e., they are ordered as {nth, (n-1)th, (n-2)th, ..., 0th}.
+  static constexpr VecU32x4 BYTE_ALIGN_MASK = {3, 2, 1, 0};
+  static constexpr VecU8x16 AND_MASK = {255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0};
+
+  template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
+  inline void decompress_iteration(VecU8x16 batch_lane, CallbackFn callback) {
+    static_assert(ITER < 3, "Cannot do more than 3 iterations per lane.");
+
+    TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
+
+    VecU8x16 lane = shuffle_vector(batch_lane, SHUFFLE_MASKS[ITER]);
+    TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
+
+    lane = reinterpret_cast<VecU32x4&>(lane) << BYTE_ALIGN_MASK;
+    TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
+
+    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
+    // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
+    // need to shift by 4 * `iter` to include this shift.
+    constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
+
+    lane = reinterpret_cast<VecU32x4&>(lane) >> shift;
+    TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
+
+    lane = lane & AND_MASK;
+    TRACE_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
+
+    callback(lane);
+  }
+
+  template <typename CallbackFn>
+  void decompressor(const void* __restrict input_compressed, size_t num_tuples, CallbackFn callback) {
+    const size_t num_batches = num_tuples / VALUES_PER_BATCH;
+
+    const auto* compressed_data = static_cast<const uint8_t*>(input_compressed);
+
+    assert(num_batches % 2 == 0);
+    for (size_t batch = 0; batch < num_batches; batch += 2) {
+      {
+        const size_t offset = ((batch + 0) * BITS_PER_BATCH) / 8;
+        auto batch_lane = *reinterpret_cast<const UnalignedVecU8x16*>(compressed_data + offset);
+        decompress_iteration<0, 0>(batch_lane, callback);
+        decompress_iteration<1, 0>(batch_lane, callback);
+        decompress_iteration<2, 0>(batch_lane, callback);
+      }
+      {
+        const size_t offset = ((batch + 1) * BITS_PER_BATCH) / 8;
+        auto batch_lane = *reinterpret_cast<const UnalignedVecU8x16*>(compressed_data + offset);
+        // In odd runs, we may have dangling bits at beginning of batch.
+        decompress_iteration<0, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
+        decompress_iteration<1, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
+        decompress_iteration<2, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
+      }
+    }
+  }
+
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    auto store_fn = [&](VecU32x4 decompressed_values) {
+      *reinterpret_cast<VecU32x4*>(output) = decompressed_values;
+      output += VALUES_PER_ITERATION;
+    };
+
+    decompressor(input, num_tuples, store_fn);
+  }
+};
+
+BENCHMARK(BM_scanning<vector_128_scan>)->BM_ARGS;
+
+struct vector_512_scan {
+  static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
+  static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
+
+  static constexpr size_t VECTOR_SIZE_IN_BYTES = 64;
+
+  using VecU8x64 = GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
+  using VecU16x32 = GccVec<uint16_t, VECTOR_SIZE_IN_BYTES>::T;
+  using VecU32x16 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
+  using UnalignedVecU16x32 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
+
+  // For our half-lane output.
+  using VecU32x8 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::T;
+  using UnalignedVecU32x8 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::UnalignedT;
+
+  // clang-format off
+  static constexpr VecU16x32 LANE_SHUFFLE_MASKS[4] = {
+    VecU16x32{0, 1, 2, 3, 4, 5, 6, 7, 2, 3, 4, 5, 6, 7, 8, 9, 4, 5, 6, 7, 8, 9, 10, 11, 6, 7, 8, 9, 10, 11, 12, 13},
+    VecU16x32{9, 10, 11, 12, 13, 14, 15, 16, 11, 12, 13, 14, 15, 16, 17, 18, 13, 14, 15, 16, 17, 18, 19, 20, 15, 16, 17, 18, 19, 20, 21, 22},
+    VecU16x32{18, 19, 20, 21, 22, 23, 24, 25, 20, 21, 22, 23, 24, 25, 26, 27, 22, 23, 24, 25, 26, 27, 28, 29, 24, 25, 26, 27, 28, 29, 30, 31},
+    VecU16x32{27, 28, 29, 30, 31, 32, 33, 34, 29, 30, 31, 32, 33, 34, 35, 36, 31, 32, 33, 34, 35, 36, 37, 38, 33, 34, 35, 36, 37, 38, 39, 40},
+  };
+
+  // Note: ordered from nth, n-1th, ..., 0th byte. But input is also n down to 0, so this is from "right" to "left" in
+  // our print helper function. This is different from the AVX512 version, where we select for each 16 Byte chunk. That
+  // is why it is 0-6 for the values there. Here we select from the global byte ordering, so we need all 64 Bytes.
+  static constexpr VecU8x64 SHUFFLE_MASK = { 0,  1,  2,  3,  1,  2,  3,  4,  2,  3,  4,  5,  3,  4,  5,  6,
+                                            16, 17, 18, 19, 17, 18, 19, 20, 18, 19, 20, 21, 19, 20, 21, 22,
+                                            32, 33, 34, 35, 33, 34, 35, 36, 34, 35, 36, 37, 35, 36, 37, 38,
+                                            48, 49, 50, 51, 49, 50, 51, 52, 50, 51, 52, 53, 51, 52, 53, 54};
+  // clang-format on
+
+  static constexpr VecU32x16 SHIFT_MASK = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  static constexpr uint32_t AND_MASK = (1 << COMPRESS_BITS) - 1;
+
+  template <size_t ITER>
+  inline VecU32x16 decompress(VecU16x32 batch_lane) {
+    static_assert(ITER < 4, "Can only do 4 iterations per lane.");
+
+    TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
+
+    VecU16x32 lane = shuffle_vector(batch_lane, LANE_SHUFFLE_MASKS[ITER]);
+    TRACE_DO(std::cout << "a16 : "; print_lane(&lane););
+
+    auto lane2 = shuffle_vector(reinterpret_cast<VecU8x64&>(lane), SHUFFLE_MASK);
+    TRACE_DO(std::cout << "a4  : "; print_lane(&lane2););
+
+    auto lane3 = reinterpret_cast<VecU32x16&>(lane2) >> SHIFT_MASK;
+    TRACE_DO(std::cout << "bit : "; print_lane(&lane3););
+
+    auto lane4 = lane3 & AND_MASK;
+    TRACE_DO(std::cout << "and : "; print_lane(&lane4););
+
+    return lane4;
+  }
+
+  template <typename CallbackFn>
+  inline void decompress_batch(VecU16x32 batch_lane, CallbackFn callback) {
+    callback(decompress<0>(batch_lane));
+    callback(decompress<1>(batch_lane));
+    callback(decompress<2>(batch_lane));
+
+    // Last iteration are only 8 values.
+    auto final_lane = decompress<3>(batch_lane);
+    callback(reinterpret_cast<VecU32x8&>(final_lane));
+  }
+
+  template <typename CallbackFn>
+  void decompressor(const void* input_compressed, size_t num_tuples, CallbackFn callback) {
+    const size_t num_batches = num_tuples / VALUES_PER_BATCH;
+    const auto* compressed_data = static_cast<const uint8_t*>(input_compressed);
+
+    for (size_t batch = 0; batch < num_batches; ++batch) {
+      const size_t offset = batch * BYTES_PER_BATCH;
+      auto batch_lane = *reinterpret_cast<const UnalignedVecU16x32*>(compressed_data + offset);
+      decompress_batch(batch_lane, callback);
+    }
+  }
+
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    auto store_fn = [&]<typename Lane>(Lane decompressed_values) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wignored-attributes"
+      if constexpr (std::is_same_v<Lane, VecU32x16>) {
+        *reinterpret_cast<UnalignedVecU16x32*>(output) = decompressed_values;
+        output += 16;
+      } else if constexpr (std::is_same_v<Lane, VecU32x8>) {
+        *reinterpret_cast<UnalignedVecU32x8*>(output) = decompressed_values;
+        output += 8;
+      }
+#pragma GCC diagnostic pop
+    };
+
+    decompressor(input, num_tuples, store_fn);
+  }
+};
+
+BENCHMARK(BM_scanning<vector_512_scan>)->BM_ARGS;
+
+///////////////////////
+///      NEON       ///
+///////////////////////
 #if defined(__aarch64__)
 struct neon_scan {
   static constexpr size_t VALUES_PER_ITERATION = 4;
@@ -194,8 +457,13 @@ struct neon_scan {
     decompressor(input, num_tuples, store_fn);
   }
 };
+
+BENCHMARK(BM_scanning<neon_scan>)->BM_ARGS;
 #endif
 
+///////////////////////
+///       x86       ///
+///////////////////////
 #if defined(__x86_64__)
 struct x86_128_scan {
   static constexpr size_t VALUES_PER_ITERATION = 4;
@@ -275,6 +543,8 @@ struct x86_128_scan {
     decompressor(input, num_tuples, store_fn);
   }
 };
+
+BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
@@ -359,266 +629,8 @@ struct x86_512_scan {
     decompressor(input, num_tuples, store_fn);
   }
 };
-#endif
 
-struct naive_scalar_scan {
-  void operator()(const uint64_t* input, uint32_t* output, size_t num_tuples) {
-    constexpr size_t U64_BITS = sizeof(uint64_t) * 8;
-    constexpr uint64_t MASK = (1 << COMPRESS_BITS) - 1;
-    uint64_t bits_left = U64_BITS;
-
-    size_t block_idx = 0;
-
-    for (size_t i = 0; i < num_tuples; ++i) {
-      const size_t bits_for_current_value = U64_BITS - bits_left;
-      output[i] |= (input[block_idx] >> bits_for_current_value) & MASK;
-
-      // Did not get all bits for value, check next block to get them.
-      if (bits_left < COMPRESS_BITS) {
-        // Shift remaining bits to correct position for bit-OR.
-        output[i] |= (input[++block_idx] << bits_left) & MASK;
-        bits_left += U64_BITS;
-      }
-
-      bits_left -= COMPRESS_BITS;
-
-      if (bits_left == 0) {
-        block_idx++;
-        bits_left = U64_BITS;
-      }
-    }
-  }
-};
-
-struct autovec_scalar_scan {
-  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    constexpr size_t U64_BITS = sizeof(uint64_t) * 8;
-    constexpr uint64_t MASK = (1 << COMPRESS_BITS) - 1;
-    uint64_t bits_left = U64_BITS;
-
-    size_t block_idx = 0;
-
-    for (size_t i = 0; i < num_tuples; ++i) {
-      const size_t bits_for_current_value = U64_BITS - bits_left;
-      output[i] |= (input[block_idx] >> bits_for_current_value) & MASK;
-
-      // Did not get all bits for value, check next block to get them.
-      if (bits_left < COMPRESS_BITS) {
-        // Shift remaining bits to correct position for bit-OR.
-        output[i] |= (input[++block_idx] << bits_left) & MASK;
-        bits_left += U64_BITS;
-      }
-
-      bits_left -= COMPRESS_BITS;
-
-      if (bits_left == 0) {
-        block_idx++;
-        bits_left = U64_BITS;
-      }
-    }
-  }
-};
-
-struct vector_128_scan {
-  static constexpr size_t VALUES_PER_ITERATION = 4;
-  static constexpr size_t ITERATIONS_PER_BATCH = (16 * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
-  static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;
-  static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
-  static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
-
-  static constexpr size_t VECTOR_SIZE_IN_BYTES = 16;
-
-  using VecU8x16 = simd::GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
-  using UnalignedVecU8x16 = simd::GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
-  using VecU32x4 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
-
-  // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
-  static constexpr VecU8x16 SHUFFLE_MASKS[3] = {
-      VecU8x16{0, 1, 2, 3, 1, 2, 3, 5, 2, 3, 4, 5, 3, 4, 5, 6},
-      VecU8x16{4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10},
-      VecU8x16{8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14},
-  };
-
-  // Note: the masks are inverted, i.e., they are ordered as {nth, (n-1)th, (n-2)th, ..., 0th}.
-  static constexpr VecU32x4 BYTE_ALIGN_MASK = {3, 2, 1, 0};
-  static constexpr VecU8x16 AND_MASK = {255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0};
-
-  template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
-  inline void decompress_iteration(VecU8x16 batch_lane, CallbackFn callback) {
-    static_assert(ITER < 3, "Cannot do more than 3 iterations per lane.");
-
-    TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
-
-    VecU8x16 lane = simd::shuffle_vector(batch_lane, SHUFFLE_MASKS[ITER]);
-    TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
-
-    lane = reinterpret_cast<VecU32x4&>(lane) << BYTE_ALIGN_MASK;
-    TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
-
-    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
-    // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
-    // need to shift by 4 * `iter` to include this shift.
-    constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
-
-    lane = reinterpret_cast<VecU32x4&>(lane) >> shift;
-    TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
-
-    lane = lane & AND_MASK;
-    TRACE_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
-
-    callback(lane);
-  }
-
-  template <typename CallbackFn>
-  void decompressor(const void* __restrict input_compressed, size_t num_tuples, CallbackFn callback) {
-    const size_t num_batches = num_tuples / VALUES_PER_BATCH;
-
-    const auto* compressed_data = static_cast<const uint8_t*>(input_compressed);
-
-    assert(num_batches % 2 == 0);
-    for (size_t batch = 0; batch < num_batches; batch += 2) {
-      {
-        const size_t offset = ((batch + 0) * BITS_PER_BATCH) / 8;
-        auto batch_lane = *reinterpret_cast<const UnalignedVecU8x16*>(compressed_data + offset);
-        decompress_iteration<0, 0>(batch_lane, callback);
-        decompress_iteration<1, 0>(batch_lane, callback);
-        decompress_iteration<2, 0>(batch_lane, callback);
-      }
-      {
-        const size_t offset = ((batch + 1) * BITS_PER_BATCH) / 8;
-        auto batch_lane = *reinterpret_cast<const UnalignedVecU8x16*>(compressed_data + offset);
-        // In odd runs, we may have dangling bits at beginning of batch.
-        decompress_iteration<0, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
-        decompress_iteration<1, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
-        decompress_iteration<2, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
-      }
-    }
-  }
-
-  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    auto store_fn = [&](VecU32x4 decompressed_values) {
-      *reinterpret_cast<VecU32x4*>(output) = decompressed_values;
-      output += VALUES_PER_ITERATION;
-    };
-
-    decompressor(input, num_tuples, store_fn);
-  }
-};
-
-struct vector_512_scan {
-  static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
-  static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
-
-  static constexpr size_t VECTOR_SIZE_IN_BYTES = 64;
-
-  using VecU8x64 = simd::GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
-  using VecU16x32 = simd::GccVec<uint16_t, VECTOR_SIZE_IN_BYTES>::T;
-  using VecU32x16 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
-  using UnalignedVecU16x32 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
-
-  // For our half-lane output.
-  using VecU32x8 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::T;
-  using UnalignedVecU32x8 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::UnalignedT;
-
-  // clang-format off
-  static constexpr VecU16x32 LANE_SHUFFLE_MASKS[4] = {
-    VecU16x32{0, 1, 2, 3, 4, 5, 6, 7, 2, 3, 4, 5, 6, 7, 8, 9, 4, 5, 6, 7, 8, 9, 10, 11, 6, 7, 8, 9, 10, 11, 12, 13},
-    VecU16x32{9, 10, 11, 12, 13, 14, 15, 16, 11, 12, 13, 14, 15, 16, 17, 18, 13, 14, 15, 16, 17, 18, 19, 20, 15, 16, 17, 18, 19, 20, 21, 22},
-    VecU16x32{18, 19, 20, 21, 22, 23, 24, 25, 20, 21, 22, 23, 24, 25, 26, 27, 22, 23, 24, 25, 26, 27, 28, 29, 24, 25, 26, 27, 28, 29, 30, 31},
-    VecU16x32{27, 28, 29, 30, 31, 32, 33, 34, 29, 30, 31, 32, 33, 34, 35, 36, 31, 32, 33, 34, 35, 36, 37, 38, 33, 34, 35, 36, 37, 38, 39, 40},
-  };
-
-  // Note: ordered from nth, n-1th, ..., 0th byte. But input is also n down to 0, so this is from "right" to "left" in
-  // our print helper function. This is different from the AVX512 version, where we select for each 16 Byte chunk. That
-  // is why it is 0-6 for the values there. Here we select from the global byte ordering, so we need all 64 Bytes.
-  static constexpr VecU8x64 SHUFFLE_MASK = { 0,  1,  2,  3,  1,  2,  3,  4,  2,  3,  4,  5,  3,  4,  5,  6,
-                                            16, 17, 18, 19, 17, 18, 19, 20, 18, 19, 20, 21, 19, 20, 21, 22,
-                                            32, 33, 34, 35, 33, 34, 35, 36, 34, 35, 36, 37, 35, 36, 37, 38,
-                                            48, 49, 50, 51, 49, 50, 51, 52, 50, 51, 52, 53, 51, 52, 53, 54};
-  // clang-format on
-
-  static constexpr VecU32x16 SHIFT_MASK = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-  static constexpr uint32_t AND_MASK = (1 << COMPRESS_BITS) - 1;
-
-  template <size_t ITER>
-  inline VecU32x16 decompress(VecU16x32 batch_lane) {
-    static_assert(ITER < 4, "Can only do 4 iterations per lane.");
-
-    TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
-
-    VecU16x32 lane = simd::shuffle_vector(batch_lane, LANE_SHUFFLE_MASKS[ITER]);
-    TRACE_DO(std::cout << "a16 : "; print_lane(&lane););
-
-    auto lane2 = simd::shuffle_vector(reinterpret_cast<VecU8x64&>(lane), SHUFFLE_MASK);
-    TRACE_DO(std::cout << "a4  : "; print_lane(&lane2););
-
-    auto lane3 = reinterpret_cast<VecU32x16&>(lane2) >> SHIFT_MASK;
-    TRACE_DO(std::cout << "bit : "; print_lane(&lane3););
-
-    auto lane4 = lane3 & AND_MASK;
-    TRACE_DO(std::cout << "and : "; print_lane(&lane4););
-
-    return lane4;
-  }
-
-  template <typename CallbackFn>
-  inline void decompress_batch(VecU16x32 batch_lane, CallbackFn callback) {
-    callback(decompress<0>(batch_lane));
-    callback(decompress<1>(batch_lane));
-    callback(decompress<2>(batch_lane));
-
-    // Last iteration are only 8 values.
-    auto final_lane = decompress<3>(batch_lane);
-    callback(reinterpret_cast<VecU32x8&>(final_lane));
-  }
-
-  template <typename CallbackFn>
-  void decompressor(const void* input_compressed, size_t num_tuples, CallbackFn callback) {
-    const size_t num_batches = num_tuples / VALUES_PER_BATCH;
-    const auto* compressed_data = static_cast<const uint8_t*>(input_compressed);
-
-    for (size_t batch = 0; batch < num_batches; ++batch) {
-      const size_t offset = batch * BYTES_PER_BATCH;
-      auto batch_lane = *reinterpret_cast<const UnalignedVecU16x32*>(compressed_data + offset);
-      decompress_batch(batch_lane, callback);
-    }
-  }
-
-  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    auto store_fn = [&]<typename Lane>(Lane decompressed_values) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wignored-attributes"
-      if constexpr (std::is_same_v<Lane, VecU32x16>) {
-        *reinterpret_cast<UnalignedVecU16x32*>(output) = decompressed_values;
-        output += 16;
-      } else if constexpr (std::is_same_v<Lane, VecU32x8>) {
-        *reinterpret_cast<UnalignedVecU32x8*>(output) = decompressed_values;
-        output += 8;
-      }
-#pragma GCC diagnostic pop
-    };
-
-    decompressor(input, num_tuples, store_fn);
-  }
-};
-
-#define BM_ARGS Repetitions(1)->Unit(benchmark::kMicrosecond)
-
-#if defined(__aarch64__)
-BENCHMARK(BM_scanning<neon_scan>)->BM_ARGS;
-#endif
-
-#if defined(__x86_64__)
-BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
-#endif
-
-#if AVX512_AVAILABLE
 BENCHMARK(BM_scanning<x86_512_scan>)->BM_ARGS;
 #endif
-
-BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
-BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
-BENCHMARK(BM_scanning<vector_128_scan>)->BM_ARGS;
-BENCHMARK(BM_scanning<vector_512_scan>)->BM_ARGS;
 
 BENCHMARK_MAIN();

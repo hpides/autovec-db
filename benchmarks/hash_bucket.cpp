@@ -23,7 +23,7 @@ struct HashBucket {
 
 static_assert(sizeof(HashBucket) == 256, "Hash Bucket should be 256 Byte for this benchmark");
 
-#define BM_ARGS Repetitions(1)
+#define BM_ARGS Unit(benchmark::kNanosecond)
 
 template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
