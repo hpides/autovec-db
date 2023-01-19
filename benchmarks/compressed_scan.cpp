@@ -197,9 +197,9 @@ struct vector_128_scan {
 
   static constexpr size_t VECTOR_SIZE_IN_BYTES = 16;
 
-  using VecU8x16 = GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
-  using UnalignedVecU8x16 = GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
-  using VecU32x4 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
+  using VecU8x16 = simd::GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
+  using UnalignedVecU8x16 = simd::GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
+  using VecU32x4 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
 
   // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
   static constexpr VecU8x16 SHUFFLE_MASKS[3] = {
@@ -218,7 +218,7 @@ struct vector_128_scan {
 
     TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
 
-    VecU8x16 lane = shuffle_vector(batch_lane, SHUFFLE_MASKS[ITER]);
+    VecU8x16 lane = simd::shuffle_vector(batch_lane, SHUFFLE_MASKS[ITER]);
     TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
 
     lane = reinterpret_cast<VecU32x4&>(lane) << BYTE_ALIGN_MASK;
@@ -282,14 +282,14 @@ struct vector_512_scan {
 
   static constexpr size_t VECTOR_SIZE_IN_BYTES = 64;
 
-  using VecU8x64 = GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
-  using VecU16x32 = GccVec<uint16_t, VECTOR_SIZE_IN_BYTES>::T;
-  using VecU32x16 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
-  using UnalignedVecU16x32 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
+  using VecU8x64 = simd::GccVec<uint8_t, VECTOR_SIZE_IN_BYTES>::T;
+  using VecU16x32 = simd::GccVec<uint16_t, VECTOR_SIZE_IN_BYTES>::T;
+  using VecU32x16 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::T;
+  using UnalignedVecU16x32 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES>::UnalignedT;
 
   // For our half-lane output.
-  using VecU32x8 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::T;
-  using UnalignedVecU32x8 = GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::UnalignedT;
+  using VecU32x8 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::T;
+  using UnalignedVecU32x8 = simd::GccVec<uint32_t, VECTOR_SIZE_IN_BYTES / 2>::UnalignedT;
 
   // clang-format off
   static constexpr VecU16x32 LANE_SHUFFLE_MASKS[4] = {
@@ -317,10 +317,10 @@ struct vector_512_scan {
 
     TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
 
-    VecU16x32 lane = shuffle_vector(batch_lane, LANE_SHUFFLE_MASKS[ITER]);
+    VecU16x32 lane = simd::shuffle_vector(batch_lane, LANE_SHUFFLE_MASKS[ITER]);
     TRACE_DO(std::cout << "a16 : "; print_lane(&lane););
 
-    auto lane2 = shuffle_vector(reinterpret_cast<VecU8x64&>(lane), SHUFFLE_MASK);
+    auto lane2 = simd::shuffle_vector(reinterpret_cast<VecU8x64&>(lane), SHUFFLE_MASK);
     TRACE_DO(std::cout << "a4  : "; print_lane(&lane2););
 
     auto lane3 = reinterpret_cast<VecU32x16&>(lane2) >> SHIFT_MASK;
