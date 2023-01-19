@@ -22,7 +22,7 @@ struct HashBucket {
 
 static_assert(sizeof(HashBucket) == 256, "Hash Bucket should be 256 Byte for this benchmark");
 
-#define BM_ARGS Repetitions(1)
+#define BM_ARGS Unit(benchmark::kNanosecond)
 
 template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
@@ -83,7 +83,7 @@ struct neon_find {
     uint8x16_t fp_vector = vld1q_u8(fingerprints);
 
     // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
-    vec8x16_t lookup_fp = vmovq_n_u8(fingerprint);
+    uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
     lookup_fp[15] = 0;
 
     // Compare fingerprints.
