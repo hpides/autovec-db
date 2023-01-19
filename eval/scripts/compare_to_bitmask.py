@@ -19,7 +19,6 @@ def plot_compare_to_bitmask(ax, data, name):
     # Remove Input-64B-as-64x1B part and other small string stuff
     data['name'] = data['name'].str.replace(r"-Input-\d+B-as-\d+x\d+B", "", regex=True)
     data['name'] = data['name'].str.replace(r"::Benchmark", "")
-    # data['name'] = data['name'].str.replace(r"sized-", "")
     data['name'] = data['name'].str.replace(r"sized-(.+)?-vec", r"\1", regex=True)
 
     # ax.set_xticklabels(data['name'], rotation=60, rotation_mode='anchor', ha='right')
@@ -61,10 +60,8 @@ if __name__ == '__main__':
     # m1_ax.set_ylim(0, 16)
     # m1_ax.set_yticks(range(0, 16, 5))
 
-
-    # HATCH_WIDTH()
-    # for ax in (x86_axes, m1_axes):
-    #     Y_GRID(ax)
+    for ax in (*x86_axes, *m1_axes):
+        Y_GRID(ax)
     #     HIDE_BORDERS(ax)
 
     plot_path = os.path.join(plot_dir, "compare_to_bitmask")
