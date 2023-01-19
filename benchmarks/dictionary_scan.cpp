@@ -11,7 +11,6 @@
 
 using RowId = uint32_t;
 using DictEntry = uint32_t;
-static_assert(sizeof(RowId) == sizeof(DictEntry), "If we change these sizes, writing results must be updated.");
 
 using DictColumn = AlignedData<DictEntry, 64>;
 using MatchingRows = AlignedData<RowId, 64>;
@@ -136,7 +135,7 @@ struct vector_128_scan {
 // TODO: This is currently a tiny bit faster than the version below with 64k masks. Leaving both in the code for now, so
 //       we can clean this up in two "shuffle strategies".
 
-enum class vector_512_scan_strategy { SHUFFLE_MASK_8_BIT, SHUFFLE_MASK_4_BIT };
+enum class vector_512_scan_strategy { SHUFFLE_MASK_16_BIT, SHUFFLE_MASK_8_BIT, SHUFFLE_MASK_4_BIT };
 
 template <vector_512_scan_strategy STRATEGY>
 struct vector_512_scan {
@@ -166,7 +165,7 @@ struct vector_512_scan {
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wignored-attributes"
-  static std::array<ShuffleVec8, 256> generate_shuffle_masks() {
+  static std::array<ShuffleVec8, 256> generate_shuffle_masks_8_bit() {
     std::array<ShuffleVec8, 256> masks{};
     for (size_t i = 0; i < masks.size(); ++i) {
       masks[i] = simd::broadcast<ShuffleVec8>(SDC);
@@ -178,16 +177,32 @@ struct vector_512_scan {
     return masks;
   }
 
-  alignas(64) std::array<ShuffleVec8, 256> MATCHES_TO_SHUFFLE_MASK = generate_shuffle_masks();
+  static std::array<ShuffleVec16, 65536> generate_shuffle_masks_16_bit() {
+    std::array<ShuffleVec16, 65536> masks{};
+    for (size_t i = 0; i < masks.size(); ++i) {
+      masks[i] = simd::broadcast<ShuffleVec16>(SDC);
+      size_t mask_pos = 0;
+      for (size_t mask = i; mask > 0; mask &= mask - 1) {
+        masks[i][mask_pos++] = std::countr_zero(mask);
+      }
+    }
+    return masks;
+  }
+
+  alignas(64) std::array<ShuffleVec8, 256> MATCHES_TO_SHUFFLE_MASK_8_BIT = generate_shuffle_masks_8_bit();
+  alignas(64) std::array<ShuffleVec16, 65536> MATCHES_TO_SHUFFLE_MASK_16_BIT = generate_shuffle_masks_16_bit();
+
 #pragma GCC diagnostic pop
+
+  ShuffleVec16 get_shuffle_mask_from_16bit(uint16_t mask) { return MATCHES_TO_SHUFFLE_MASK_16_BIT[mask]; }
 
   ShuffleVec16 get_shuffle_mask_from_8bit(uint16_t mask) {
     uint8_t lo_mask = mask;
     uint8_t hi_mask = mask >> 8;
     size_t num_lo_matches = std::popcount(lo_mask);
 
-    ShuffleVec8 lo_shuffle_mask = MATCHES_TO_SHUFFLE_MASK[lo_mask];
-    ShuffleVec8 hi_shuffle_mask = MATCHES_TO_SHUFFLE_MASK[hi_mask] + 8;
+    ShuffleVec8 lo_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[lo_mask];
+    ShuffleVec8 hi_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[hi_mask] + 8;
 
     alignas(64) std::array<ShuffleVecElementT, 16> raw_shuffle_mask{};
     std::memcpy(raw_shuffle_mask.data(), &lo_shuffle_mask, sizeof(lo_shuffle_mask));
@@ -232,9 +247,10 @@ struct vector_512_scan {
 
       uint16_t mask = simd::comparison_to_bitmask(matches);
 
-      // TODO: if constexpr shuffle strategy: can also shuffle with 16 bits in lookup array
       ShuffleVec16 shuffle_mask;
-      if constexpr (STRATEGY == vector_512_scan_strategy::SHUFFLE_MASK_8_BIT) {
+      if constexpr (STRATEGY == vector_512_scan_strategy::SHUFFLE_MASK_16_BIT) {
+        shuffle_mask = get_shuffle_mask_from_16bit(mask);
+      } else if (STRATEGY == vector_512_scan_strategy::SHUFFLE_MASK_8_BIT) {
         shuffle_mask = get_shuffle_mask_from_8bit(mask);
       } else if (STRATEGY == vector_512_scan_strategy::SHUFFLE_MASK_4_BIT) {
         shuffle_mask = get_shuffle_mask_from_4bit(mask);
@@ -249,74 +265,7 @@ struct vector_512_scan {
   }
 };
 
-// struct vector_512_scan {
-//   static_assert(sizeof(DictEntry) == 4, "Need to change DictVec below.");
-//   using DictVec = simd::GccVec<uint32_t, 64>::T;
-//
-//   static_assert(sizeof(RowId) == 4, "Need to change RowVec below.");
-//   using RowVec = simd::GccVec<uint32_t, 64>::T;
-//
-//   static constexpr size_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
-//   static_assert(NUM_MATCHES_PER_VECTOR == 16);
-//
-//   // We need 16 values here, and they could be of uint8_t to save memory. However, this has a conversion cost before
-//   the
-//   // shuffle, so we use the larger uint32_t to avoid that runtime cost.
-//   using ShuffleVec = RowVec;
-//   static constexpr RowId SDC = -1;  // SDC == SHUFFLE_DONT_CARE
-//
-// #pragma GCC diagnostic push
-// #pragma GCC diagnostic ignored "-Wignored-attributes"
-//   using MaskArray = std::array<ShuffleVec, 65536>;
-//
-//   static MaskArray generate_shuffle_masks() {
-//     MaskArray masks{};
-//     for (size_t i = 0; i < masks.size(); ++i) {
-//       masks[i] = simd::broadcast<ShuffleVec>(SDC);
-//       size_t mask_pos = 0;
-//       for (size_t mask = i; mask > 0; mask &= mask - 1) {
-//         masks[i][mask_pos++] = std::countr_zero(mask);
-//       }
-//     }
-//     return masks;
-//   }
-//
-//   MaskArray MATCHES_TO_SHUFFLE_MASK = generate_shuffle_masks();
-// #pragma GCC diagnostic pop
-//
-//   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
-//     RowId num_matching_rows = 0;
-//
-//     const DictEntry* __restrict rows = column.aligned_data();
-//     RowId* __restrict output = matching_rows->aligned_data();
-//     const auto filter_vec = simd::broadcast<DictVec>(filter_val);
-//
-//     static_assert(NUM_ROWS % (NUM_MATCHES_PER_VECTOR) == 0);
-//     constexpr size_t iterations = NUM_ROWS / NUM_MATCHES_PER_VECTOR;
-//     for (RowId i = 0; i < iterations; ++i) {
-//       const RowId start_row = NUM_MATCHES_PER_VECTOR * i;
-//       constexpr RowVec row_offsets{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-//       RowVec row_ids = simd::broadcast<RowVec>(start_row) + row_offsets;
-//
-//       auto rows_to_match = simd::load<DictVec>(rows + start_row);
-//       DictVec matches = rows_to_match < filter_vec;
-//
-//       // TODO: if constexpr shuffle strategy: can also shuffle with 16 bits in lookup array
-//       uint16_t mask = gcc_vec_get_mask(matches);
-//
-//       ShuffleVec shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
-//       RowVec compressed_rows = simd::shuffle_vector(row_ids, shuffle_mask);
-//       simd::unaligned_store(output + num_matching_rows, compressed_rows);
-//       num_matching_rows += std::popcount(mask);
-//     }
-//
-//     return num_matching_rows;
-//   }
-// };
-
 #if defined(__aarch64__)
-#include <arm_neon.h>
-
 struct neon_scan {
   static_assert(sizeof(DictEntry) == 4, "Need to change DictVec below.");
   using DictVec = uint32x4_t;
@@ -388,8 +337,6 @@ struct neon_scan {
 
 #if defined(__x86_64__)
 
-#include <immintrin.h>
-
 // Important: _mm*_mask_compressstore[u]() is not available until AVX512. So anything older must run without it.
 struct x86_128_scan {
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
@@ -402,8 +349,6 @@ struct x86_128_scan {
 #endif
 
 #if AVX512_AVAILABLE
-
-#include <immintrin.h>
 
 enum class x86_512_scan_strategy { COMPRESSSTORE, COMPRESS_PLUS_STORE };
 
@@ -513,6 +458,7 @@ BENCHMARK(BM_dictionary_scan<naive_scalar_scan>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<autovec_scalar_scan>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_128_scan<vector_128_scan_strategy::SHUFFLE>>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_128_scan<vector_128_scan_strategy::PREDICATION>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<vector_512_scan<vector_512_scan_strategy::SHUFFLE_MASK_16_BIT>>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_512_scan<vector_512_scan_strategy::SHUFFLE_MASK_8_BIT>>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_512_scan<vector_512_scan_strategy::SHUFFLE_MASK_4_BIT>>)->BM_ARGS;
 

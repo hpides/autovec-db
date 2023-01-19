@@ -19,6 +19,15 @@ struct ClangBitmask {
   using T __attribute__((ext_vector_type(NUM_BITS))) = bool;
 };
 #endif
+#if defined(__aarch64__)
+// clang-format off
+template <size_t ELEMENT_BYTES> struct NeonVecT;
+template <> struct NeonVecT<1> { using T = uint8x16_t; };
+template <> struct NeonVecT<2> { using T = uint16x8_t; };
+template <> struct NeonVecT<4> { using T = uint32x4_t; };
+template <> struct NeonVecT<8> { using T = uint64x2_t; };
+// clang-format on
+#endif
 
 namespace detail {
 
@@ -26,9 +35,9 @@ namespace detail {
 
 // All 64 Bit vectors have the same flow, but require the instruction without `q` in it.
 template <typename VectorT>
-concept NeonShuffleVec = sizeof(VectorT) == 16;
+concept CanShuffleVecNeon = sizeof(VectorT) == 16;
 
-template <NeonShuffleVec VectorT>
+template <CanShuffleVecNeon VectorT>
 inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
   constexpr uint8_t ELEMENT_SIZE = sizeof(decltype(vec[0]));
 
@@ -95,9 +104,6 @@ inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
     converted_mask += uint8x16_t{0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7};
     return vqtbl1q_u8(vec, converted_mask);
   }
-
-  // All options are covered above.
-  __builtin_unreachable();
 }
 #endif
 
@@ -174,17 +180,12 @@ MaskT gcc_comparison_to_bitmask(VectorT matches) {
  *  __builtin_shufflevector. However, __builtin_shufflevector is called differently on both. GCC requires two input
  *  vectors whereas clang requires only one. While it is possible to call it with two vectors in clang, this in turn
  *  requires the mask indexes to be "constant integers", i.e., compile-time values. The documentation on these functions
- *  is quite messy/non-existent.
- *  Clang: https://clang.llvm.org/docs/LanguageExtensions.html#builtin-shufflevector
- *    --> This says that we always need two vectors and constant integer indexes.
- *    But if you look at the actual implementation in clang:
- *      https://github.com/llvm/llvm-project/blob/ef992b60798b6cd2c50b25351bfc392e319896b7/clang/lib/CodeGen/CGExprScalar.cpp#L1645-L1678
- *    you see that the second argument (vec2 in the documentation) can actually be a runtime mask.
+ *  is quite messy/non-existent. See: https://github.com/llvm/llvm-project/issues/59678
  */
 template <typename VectorT, typename MaskT>
 inline VectorT shuffle_vector(VectorT vec, MaskT mask) {
 #if defined(__aarch64__)
-  if constexpr (detail::NeonShuffleVec<VectorT>) {
+  if constexpr (detail::CanShuffleVecNeon<VectorT>) {
     // This specialized method gives a ~60% speedup compared to clang's builtin in the dict scan (on M1 MacBook Pro).
     return detail::neon_shuffle_vector(vec, mask);
   } else {
