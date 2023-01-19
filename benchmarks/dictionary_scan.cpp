@@ -121,8 +121,8 @@ struct vector_128_scan {
         simd::unaligned_store(output + num_matching_rows, compressed_rows);
         num_matching_rows += std::popcount(mask);
       } else if (STRATEGY == vector_128_scan_strategy::PREDICATION) {
-        for (RowId row = start_row; row < start_row + 4; ++row) {
-          output[num_matching_rows] = row;
+        for (RowId row = 0; row < 4; ++row) {
+          output[num_matching_rows] = start_row + row;
           num_matching_rows += matches[row] & 1;
         }
       }
@@ -451,7 +451,8 @@ void BM_dictionary_scan(benchmark::State& state) {
   }
 }
 
-// #define BM_ARGS Unit(benchmark::kMicrosecond)->Arg(0)->Arg(33)->Arg(50)->Arg(66)->Arg(100)->ReportAggregatesOnly()
+// #define BM_ARGS
+// Unit(benchmark::kMicrosecond)->Arg(0)->Arg(10)->Arg(33)->Arg(50)->Arg(66)->Arg(100)->ReportAggregatesOnly()
 #define BM_ARGS Unit(benchmark::kMicrosecond)->Arg(50)
 
 BENCHMARK(BM_dictionary_scan<naive_scalar_scan>)->BM_ARGS;
