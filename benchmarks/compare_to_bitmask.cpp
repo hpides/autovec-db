@@ -282,7 +282,7 @@ struct neon_bitmask {
   using InputT = InputT_;
   using ElementT = typename InputT::DataT;
 
-  using VecT = NeonVecT<sizeof(ElementT)>::T;
+  using VecT = typename NeonVecT<sizeof(ElementT)>::T;
 
   struct GetSubresultMask {
     using InputT = VecT;

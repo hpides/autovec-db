@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
+pd.set_option('display.max_colwidth', None)
 
 
 #######################################
@@ -29,16 +30,24 @@ APPLE_GREY = '#555555'
 
 VARIANT_COLOR_BLACK_WHITE = {
     "scalar": '#f0f0f0',
+
     "autovec": '#bdbdbd',
+    "bitset": '#bdbdbd',
+
     "vec": '#737373',
+
     "x86": '#252525',
     "neon": '#252525',
 }
 
 VARIANT_COLOR = {
     "scalar": '#ffffb2',
+
     "autovec": '#fecc5c',
+    "bitset": '#fecc5c',
+
     "vec": '#fd8d3c',
+
     "x86": '#e31a1c',
     "neon": '#e31a1c',
 }
@@ -69,7 +78,10 @@ def ASSERT_VARIANCE_IS_LOW(results, limit_percent=3):
     mean = results[results.name.str.contains("_mean")].copy().reset_index()
     variance = (stddev['runtime'] / mean['runtime']) * 100
     if (variance > limit_percent).any():
-        print(f"Variance too high in benchmarks: {variance}")
+        bad_runs = mean[variance > limit_percent].copy()
+        bad_runs['var%'] = variance
+        print(f"Variance too high in benchmark(s). Limit: {limit_percent}%:", file=sys.stderr)
+        print(bad_runs, file=sys.stderr)
 
 
 def INIT_PLOT():
