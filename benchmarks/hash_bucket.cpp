@@ -32,6 +32,7 @@ template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
   std::mt19937 rng{std::random_device{}()};
   std::uniform_int_distribution<> index_distribution(0, NUM_ENTRIES - 1);
+  // 2^64 is ~1.84e19, so we split the key range into existing and non-existing keys at 1e19
   std::uniform_int_distribution<uint64_t> existing_key_distribution(0, 1e19);
   std::uniform_int_distribution<uint64_t> non_existing_key_distribution(1e19 + 1);
 
@@ -84,9 +85,8 @@ void BM_hash_bucket_get(benchmark::State& state) {
     }
   }
 
-  // TODO: When adding this, I get a 3x slowdown on x86-bitmask. Why? Initial perf inspection didn't show anything...
-  // state.counters["TimePerLookup"] = benchmark::Counter(state.iterations() * NUM_LOOKUPS_PER_ITERATION,
-  //                                                      benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+  state.counters["TimePerLookup"] = benchmark::Counter(state.iterations() * NUM_LOOKUPS_PER_ITERATION,
+                                                       benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, uint64_t key,
