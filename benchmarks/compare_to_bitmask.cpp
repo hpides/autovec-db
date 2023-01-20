@@ -235,7 +235,7 @@ struct gcc_vector_custom_bitmask {
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
 
-  using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
+  using VecT = typename simd::GccVec<ElementT, VECTOR_BYTES>::T;
 
   struct GetSubresultMask {
     using InputT = VecT;
