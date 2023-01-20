@@ -259,12 +259,12 @@ struct autovec_scalar_find {
 BENCHMARK(BM_hash_bucket_get<autovec_scalar_find>)->BM_ARGS;
 
 struct vector_bytemask_find {
-  using vec8x16 = GccVec<uint8_t, 16>::T;
+  using uint8x16 = GccVec<uint8_t, 16>::T;
 
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    vec8x16 fp_vector = *reinterpret_cast<vec8x16*>(bucket.fingerprints.data());
-    vec8x16 lookup_fp = broadcast<vec8x16>(fingerprint);
-    vec8x16 matching_fingerprints = fp_vector == lookup_fp;
+    uint8x16 fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
+    uint8x16 lookup_fp = broadcast<uint8x16>(fingerprint);
+    uint8x16 matching_fingerprints = fp_vector == lookup_fp;
 
     return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(matching_fingerprints));
   }
@@ -273,14 +273,14 @@ BENCHMARK(BM_hash_bucket_get<vector_bytemask_find>)->BM_ARGS;
 
 #if CLANG_COMPILER
 struct vector_bitmask_find {
-  using vec8x16 = GccVec<uint8_t, 16>::T;
-  using vec1x16 = ClangBitmask<16>::T;
+  using uint8x16 = GccVec<uint8_t, 16>::T;
+  using boolx16 = ClangBitmask<16>::T;
 
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    vec8x16 fp_vector = *reinterpret_cast<vec8x16*>(bucket.fingerprints.data());
-    vec8x16 lookup_fp = broadcast<vec8x16>(fingerprint);
+    uint8x16 fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
+    uint8x16 lookup_fp = broadcast<uint8x16>(fingerprint);
 
-    vec1x16 matching_fingerprints_bits_vec = __builtin_convertvector(fp_vector == lookup_fp, vec1x16);
+    boolx16 matching_fingerprints_bits_vec = __builtin_convertvector(fp_vector == lookup_fp, boolx16);
     uint16_t matching_fingerprints_bits = reinterpret_cast<uint16_t&>(matching_fingerprints_bits_vec);
 
     return key_matches_from_fingerprint_matches_bit(bucket, key, matching_fingerprints_bits);
