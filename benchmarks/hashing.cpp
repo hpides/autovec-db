@@ -7,7 +7,7 @@
 #include "benchmark/benchmark.h"
 #include "common.hpp"
 
-#define BM_ARGS Repetitions(1)->Arg(27)
+#define BM_ARGS Arg(27)
 
 // TODO(lawben): Check which number here makes sense. We need: #keys / (#vector-lanes / 8B key) registers.
 //                 --> 128 keys = 16 zmm | 32 ymm | 64 xmm registers
@@ -71,6 +71,82 @@ void BM_hashing(benchmark::State& state) {
   }
 }
 
+///////////////////////
+///     SCALAR      ///
+///////////////////////
+struct naive_scalar_hash {
+#if GCC_COMPILER
+  __attribute__((optimize("no-tree-vectorize")))
+#endif
+  HashArray
+  operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
+#if CLANG_COMPILER
+#pragma clang loop vectorize(disable)
+#endif
+    for (size_t i = 0; i < NUM_KEYS; ++i) {
+      result[i] = calculate_hash(keys_to_hash[i], required_bits);
+    }
+
+    return result;
+  }
+};
+BENCHMARK(BM_hashing<naive_scalar_hash>)->BM_ARGS;
+
+///////////////////////
+///     AUTOVEC     ///
+///////////////////////
+struct autovec_scalar_hash {
+  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
+    for (size_t i = 0; i < NUM_KEYS; ++i) {
+      result[i] = calculate_hash(keys_to_hash[i], required_bits);
+    }
+    return result;
+  }
+};
+
+BENCHMARK(BM_hashing<autovec_scalar_hash>)->BM_ARGS;
+
+///////////////////////
+///     VECTOR      ///
+///////////////////////
+template <size_t VECTOR_BITS>
+struct vector_hash {
+  static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
+  static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(uint64_t);
+
+  using VecT = typename GccVec<uint64_t, VECTOR_BYTES>::T;
+  static_assert(sizeof(VecT) == VECTOR_BYTES);
+
+  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+    HashArray result;
+    const VecT* vec_keys = reinterpret_cast<const VecT*>(keys_to_hash.data());
+
+    auto hashes = reinterpret_cast<VecT*>(result.data());
+
+    uint64_t shift = 64 - required_bits;
+    for (size_t i = 0; i < NUM_KEYS / NUM_VECTOR_ELEMENTS; ++i) {
+      hashes[i] = (vec_keys[i] * MULTIPLY_CONSTANT) >> shift;
+    }
+    return result;
+  }
+};
+
+BENCHMARK(BM_hashing<vector_hash<64>>)->BM_ARGS;
+BENCHMARK(BM_hashing<vector_hash<128>>)->BM_ARGS;
+
+// TODO: figure out why these are so fast
+// Richard: On x86, clang generates different code for the 64-bit multiplication
+// that is ~20% faster. I'd guess it's due to microarchitecture insight?
+// Should we give this as a win to clang? If we were using agner fogs library,
+// we wouldn't get that performance.
+BENCHMARK(BM_hashing<vector_hash<256>>)->BM_ARGS;
+BENCHMARK(BM_hashing<vector_hash<512>>)->BM_ARGS;
+
+///////////////////////
+///      NEON       ///
+///////////////////////
 #if defined(__aarch64__)
 struct neon_hash {
   uint64x2_t multiply(uint64x2_t a, uint64x2_t b) {
@@ -122,6 +198,9 @@ struct neon_hash {
 BENCHMARK(BM_hashing<neon_hash>)->BM_ARGS;
 #endif
 
+///////////////////////
+///       x86       ///
+///////////////////////
 #if defined(__x86_64__)
 struct x86_128_hash {
   using VecT = __m128i;
@@ -246,68 +325,5 @@ struct x86_512_hash {
 };
 BENCHMARK(BM_hashing<x86_512_hash>)->BM_ARGS;
 #endif
-
-struct naive_scalar_hash {
-#if GCC_COMPILER
-  __attribute__((optimize("no-tree-vectorize")))
-#endif
-  HashArray
-  operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
-    HashArray result;
-#if CLANG_COMPILER
-#pragma clang loop vectorize(disable)
-#endif
-    for (size_t i = 0; i < NUM_KEYS; ++i) {
-      result[i] = calculate_hash(keys_to_hash[i], required_bits);
-    }
-
-    return result;
-  }
-};
-
-struct autovec_scalar_hash {
-  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
-    HashArray result;
-    for (size_t i = 0; i < NUM_KEYS; ++i) {
-      result[i] = calculate_hash(keys_to_hash[i], required_bits);
-    }
-    return result;
-  }
-};
-
-template <size_t VECTOR_BITS>
-struct vector_hash {
-  static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
-  static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(uint64_t);
-
-  using VecT = typename GccVec<uint64_t, VECTOR_BYTES>::T;
-  static_assert(sizeof(VecT) == VECTOR_BYTES);
-
-  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
-    HashArray result;
-    const VecT* vec_keys = reinterpret_cast<const VecT*>(keys_to_hash.data());
-
-    auto hashes = reinterpret_cast<VecT*>(result.data());
-
-    uint64_t shift = 64 - required_bits;
-    for (size_t i = 0; i < NUM_KEYS / NUM_VECTOR_ELEMENTS; ++i) {
-      hashes[i] = (vec_keys[i] * MULTIPLY_CONSTANT) >> shift;
-    }
-    return result;
-  }
-};
-
-BENCHMARK(BM_hashing<naive_scalar_hash>)->BM_ARGS;
-BENCHMARK(BM_hashing<autovec_scalar_hash>)->BM_ARGS;
-BENCHMARK(BM_hashing<vector_hash<64>>)->BM_ARGS;
-BENCHMARK(BM_hashing<vector_hash<128>>)->BM_ARGS;
-
-// TODO: figure out why these are so fast
-// Richard: On x86, clang generates different code for the 64-bit multiplication
-// that is ~20% faster. I'd guess it's due to microarchitecture insight?
-// Should we give this as a win to clang? If we were using agner fogs library,
-// we wouldn't get that performance.
-BENCHMARK(BM_hashing<vector_hash<256>>)->BM_ARGS;
-BENCHMARK(BM_hashing<vector_hash<512>>)->BM_ARGS;
 
 BENCHMARK_MAIN();
