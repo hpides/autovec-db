@@ -1,12 +1,4 @@
 name,iterations,real_time,cpu_time,time_unit,bytes_per_second,items_per_second,label,error_occurred,error_message,"TimePerLookup"
-"BM_hash_bucket_get<neon_bytemask_find>_mean",10,1236.45,1196.88,ns,,,,,,1.16883e-09
-"BM_hash_bucket_get<neon_bytemask_find>_median",10,1213.35,1202.43,ns,,,,,,1.17425e-09
-"BM_hash_bucket_get<neon_bytemask_find>_stddev",10,83.1981,41.0035,ns,,,,,,4.00425e-11
-"BM_hash_bucket_get<neon_bytemask_find>_cv",10,6.72879e+06,3.42585e+06,ns,,,,,,0.0342585
-"BM_hash_bucket_get<neon_bitmask_find>_mean",10,1237.88,1202.16,ns,,,,,,1.17398e-09
-"BM_hash_bucket_get<neon_bitmask_find>_median",10,1207.22,1196.16,ns,,,,,,1.16813e-09
-"BM_hash_bucket_get<neon_bitmask_find>_stddev",10,74.3933,21.1665,ns,,,,,,2.06704e-11
-"BM_hash_bucket_get<neon_bitmask_find>_cv",10,6.00972e+06,1.7607e+06,ns,,,,,,0.017607
 "BM_hash_bucket_get<naive_scalar_find>_mean",10,4041.42,4039.52,ns,,,,,,3.94484e-09
 "BM_hash_bucket_get<naive_scalar_find>_median",10,4019.35,4018.91,ns,,,,,,3.92472e-09
 "BM_hash_bucket_get<naive_scalar_find>_stddev",10,56.1509,55.1225,ns,,,,,,5.38306e-11
@@ -27,3 +19,11 @@ name,iterations,real_time,cpu_time,time_unit,bytes_per_second,items_per_second,l
 "BM_hash_bucket_get<vector_bitmask_find>_median",10,3234.19,3234.1,ns,,,,,,3.1583e-09
 "BM_hash_bucket_get<vector_bitmask_find>_stddev",10,112.405,112.418,ns,,,,,,1.09783e-10
 "BM_hash_bucket_get<vector_bitmask_find>_cv",10,3.46456e+06,3.466e+06,ns,,,,,,0.03466
+"BM_hash_bucket_get<neon_bytemask_find>_mean",10,1236.45,1196.88,ns,,,,,,1.16883e-09
+"BM_hash_bucket_get<neon_bytemask_find>_median",10,1213.35,1202.43,ns,,,,,,1.17425e-09
+"BM_hash_bucket_get<neon_bytemask_find>_stddev",10,83.1981,41.0035,ns,,,,,,4.00425e-11
+"BM_hash_bucket_get<neon_bytemask_find>_cv",10,6.72879e+06,3.42585e+06,ns,,,,,,0.0342585
+"BM_hash_bucket_get<neon_bitmask_find>_mean",10,1237.88,1202.16,ns,,,,,,1.17398e-09
+"BM_hash_bucket_get<neon_bitmask_find>_median",10,1207.22,1196.16,ns,,,,,,1.16813e-09
+"BM_hash_bucket_get<neon_bitmask_find>_stddev",10,74.3933,21.1665,ns,,,,,,2.06704e-11
+"BM_hash_bucket_get<neon_bitmask_find>_cv",10,6.00972e+06,1.7607e+06,ns,,,,,,0.017607
