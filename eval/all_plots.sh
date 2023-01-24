@@ -15,7 +15,8 @@ export PYTHONPATH="$PWD/scripts"
 for script in scripts/*.py
 do
     echo "Running $script..."
-    python3 ${script} ${RESULT_DIR} ${PLOT_DIR} > /dev/null
+    python3 ${script} ${RESULT_DIR} ${PLOT_DIR} cascadelake > /dev/null
+    python3 ${script} ${RESULT_DIR} ${PLOT_DIR} icelake     > /dev/null
 done
 
 open ${PLOT_DIR}/*.png

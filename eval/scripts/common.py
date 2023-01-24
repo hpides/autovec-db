@@ -27,6 +27,8 @@ DEFAULT_LABEL_ROTATION = 75
 INTEL_BLUE = '#0071c5'
 APPLE_GREY = '#555555'
 
+DEFAULT_X86_ARCH = 'cascadelake'
+
 
 VARIANT_COLOR_BLACK_WHITE = {
     "scalar": '#f0f0f0',
@@ -92,16 +94,21 @@ def INIT_PLOT():
 
 
 def INIT(args):
-    if len(args) != 3:
-        sys.exit("Need /path/to/results /path/to/plots")
+    if len(args) < 3:
+        sys.exit("Need /path/to/results /path/to/plots [x86_arch]")
 
     result_path = args[1]
     plot_dir = args[2]
 
+    x86_arch = DEFAULT_X86_ARCH
+    if len(args) == 4:
+        x86_arch = args[3]
+        assert(x86_arch == 'icelake' or x86_arch == 'cascadelake')
+
     os.makedirs(plot_dir, exist_ok=True)
     INIT_PLOT()
 
-    return result_path, plot_dir
+    return result_path, plot_dir, x86_arch
 
 
 def BAR(variant):
