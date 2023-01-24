@@ -29,7 +29,7 @@ def plot_compare_to_bitmask(ax, data, name):
 if __name__ == '__main__':
     result_path, plot_dir = INIT(sys.argv)
 
-    x86_results = get_results(result_path, "compare_to_bitmask_x86.csv")
+    x86_results = get_results(result_path, "compare_to_bitmask_x86_cascadelake.csv")
     x86_results = clean_up_results(x86_results, "bitmask")
 
     m1_results = get_results(result_path, "compare_to_bitmask_m1.csv")
