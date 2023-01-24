@@ -15,3 +15,7 @@ compile_commands.json
 
 # I like to have cpplint running
 CPPLINT.cfg
+
+todo.txt
+
+*.csv
