@@ -93,6 +93,26 @@ struct autovec_scalar_bitmask {
   }
 };
 
+template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
+struct bitset_bitmask {
+  using MaskT = MaskT_;
+  using InputT = InputT_;
+  using ElementT = typename InputT::DataT;
+
+  MaskT operator()(const InputT& input1, const InputT& input2) {
+    const auto* __restrict input1_typed = input1.data();
+    const auto* __restrict input2_typed = input2.data();
+
+    constexpr size_t iterations = sizeof(InputT) / sizeof(ElementT);
+
+    std::bitset<sizeof(MaskT) * 8> result;
+    for (size_t i = 0; i < iterations; ++i) {
+      result[i] = input1_typed[i] == input2_typed[i];
+    }
+    return result.to_ullong();
+  }
+};
+
 #if CLANG_COMPILER
 template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct clang_vector_bitmask {
@@ -143,26 +163,6 @@ struct sized_clang_vector_bitmask {
   using Benchmark = clang_vector_bitmask<VECTOR_BITS, InputT_>;
 };
 #endif
-
-template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
-struct bitset_bitmask {
-  using MaskT = MaskT_;
-  using InputT = InputT_;
-  using ElementT = typename InputT::DataT;
-
-  MaskT operator()(const InputT& input1, const InputT& input2) {
-    const auto* __restrict input1_typed = input1.data();
-    const auto* __restrict input2_typed = input2.data();
-
-    constexpr size_t iterations = sizeof(InputT) / sizeof(ElementT);
-
-    std::bitset<sizeof(MaskT) * 8> result;
-    for (size_t i = 0; i < iterations; ++i) {
-      result[i] = input1_typed[i] == input2_typed[i];
-    }
-    return result.to_ullong();
-  }
-};
 
 template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct gcc_vector_naive_bitmask {
