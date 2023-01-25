@@ -535,7 +535,7 @@ struct x86_128_scan {
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     auto store_fn = [&](__m128i decompressed_values) {
-      _mm_stream_si128(reinterpret_cast<__m128i*>(output), decompressed_values);
+      _mm_store_si128(reinterpret_cast<__m128i*>(output), decompressed_values);
       output += VALUES_PER_ITERATION;
     };
 
