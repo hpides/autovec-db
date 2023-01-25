@@ -413,7 +413,6 @@ struct neon_scan {
     constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
 
     lane = vshrq_n_s32(vreinterpretq_u32_u8(lane), shift);
-    //    lane = vshlq_s32(vreinterpretq_s32_u8(lane), shift_lane);
     TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
 
     lane = vandq_u8(lane, AND_MASK);
