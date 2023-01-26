@@ -199,7 +199,7 @@ struct vector_128_scan {
   using uint32x4 = GccVec<uint32_t, 16>::T;
 
   // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
-  static constexpr std::array<uint8x16, 3> SHUFFLE_MASKS{
+  static constexpr std::array SHUFFLE_MASKS = {
       uint8x16{0, 1, 2, 3, 1, 2, 3, 5, 2, 3, 4, 5, 3, 4, 5, 6},
       uint8x16{4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10},
       uint8x16{8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14},
@@ -287,7 +287,7 @@ struct vector_512_scan {
   using uint32x8_unaligned = GccVec<uint32_t, 32>::UnalignedT;
 
   // clang-format off
-  static constexpr std::array<uint16x32, 4> LANE_SHUFFLE_MASKS {
+  static constexpr std::array LANE_SHUFFLE_MASKS = {
     uint16x32{0, 1, 2, 3, 4, 5, 6, 7, 2, 3, 4, 5, 6, 7, 8, 9, 4, 5, 6, 7, 8, 9, 10, 11, 6, 7, 8, 9, 10, 11, 12, 13},
     uint16x32{9, 10, 11, 12, 13, 14, 15, 16, 11, 12, 13, 14, 15, 16, 17, 18, 13, 14, 15, 16, 17, 18, 19, 20, 15, 16, 17, 18, 19, 20, 21, 22},
     uint16x32{18, 19, 20, 21, 22, 23, 24, 25, 20, 21, 22, 23, 24, 25, 26, 27, 22, 23, 24, 25, 26, 27, 28, 29, 24, 25, 26, 27, 28, 29, 30, 31},
@@ -351,17 +351,14 @@ struct vector_512_scan {
   }
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    auto store_fn = [&]<typename Lane>(Lane decompressed_values) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wignored-attributes"
-      if constexpr (std::is_same_v<Lane, uint32x16>) {
+    auto store_fn = [&](auto decompressed_values) {
+      if constexpr (sizeof(decompressed_values) == 64) {
         *reinterpret_cast<uint16x32_unaligned*>(output) = decompressed_values;
         output += 16;
-      } else if constexpr (std::is_same_v<Lane, uint32x8>) {
+      } else if constexpr (sizeof(decompressed_values) == 32) {
         *reinterpret_cast<uint32x8_unaligned*>(output) = decompressed_values;
         output += 8;
       }
-#pragma GCC diagnostic pop
     };
 
     decompressor(input, num_tuples, store_fn);
@@ -469,7 +466,7 @@ struct x86_128_scan {
 
   template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
   inline void decompress_iteration(__m128i batch_lane, CallbackFn callback) {
-    const std::array<__m128i, 3> shuffle_masks{
+    const std::array shuffle_masks = {
         _mm_set_epi8(6, 5, 4, 3, 5, 4, 3, 2, 5, 3, 2, 1, 3, 2, 1, 0),
         _mm_set_epi8(10, 9, 8, 7, 9, 8, 7, 6, 8, 7, 6, 5, 7, 6, 5, 4),
         _mm_set_epi8(14, 13, 12, 11, 13, 12, 11, 10, 12, 11, 10, 9, 11, 10, 9, 8),
@@ -550,7 +547,7 @@ struct x86_512_scan {
   template <size_t ITER>
   inline __m512i decompress(__m512i batch_lane) {
     // clang-format off
-    const std::array<__m512i, 4> lane_shuffle_masks {
+    const std::array lane_shuffle_masks = {
       _mm512_set_epi16(13, 12, 11, 10, 9, 8, 7, 6, 11, 10, 9, 8, 7, 6, 5, 4, 9, 8, 7, 6, 5, 4, 3, 2, 7, 6, 5, 4, 3, 2, 1, 0),
       _mm512_set_epi16(22, 21, 20, 19, 18, 17, 16, 15, 20, 19, 18, 17, 16, 15, 14, 13, 18, 17, 16, 15, 14, 13, 12, 11, 16, 15, 14, 13, 12, 11, 10, 9),
       _mm512_set_epi16(31, 30, 29, 28, 27, 26, 25, 24, 29, 28, 27, 26, 25, 24, 23, 22, 27, 26, 25, 24, 23, 22, 21, 20, 25, 24, 23, 22, 21, 20, 19, 18),
@@ -607,19 +604,15 @@ struct x86_512_scan {
   }
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    // We don't care about the attributes here, and we know that this is okay.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wignored-attributes"
-    auto store_fn = [&]<typename Lane>(Lane decompressed_values) {
-      if constexpr (std::is_same_v<Lane, __m512i>) {
+    auto store_fn = [&](auto decompressed_values) {
+      if constexpr (sizeof(decompressed_values) == 64) {
         _mm512_storeu_si512(reinterpret_cast<__m512i*>(output), reinterpret_cast<__m512i&>(decompressed_values));
         output += 16;
-      } else if constexpr (std::is_same_v<Lane, __m256i>) {
+      } else if constexpr (sizeof(decompressed_values) == 32) {
         _mm256_store_si256(reinterpret_cast<__m256i*>(output), reinterpret_cast<__m256i&>(decompressed_values));
         output += 8;
       }
     };
-#pragma GCC diagnostic pop
 
     decompressor(input, num_tuples, store_fn);
   }
