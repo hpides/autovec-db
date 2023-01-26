@@ -265,8 +265,9 @@ struct gcc_vector_custom_bitmask {
            start_element += ELEMENTS_COMBINED_PER_ITERATION) {
         auto sub_bits_begin = single_bit_array.begin() + start_element;
         auto sub_bits_end = std::min(sub_bits_begin + ELEMENTS_COMBINED_PER_ITERATION, single_bit_array.end());
-        const uint64_t sub_accumulation_result = std::accumulate(sub_bits_begin, sub_bits_end, 0ull);
-        result |= sub_accumulation_result << start_element;
+        // NOLINTNEXTLINE(bugprone-fold-init-type): A bigger fold type decreases performance here
+        const MaskT sub_accumulation_result = std::accumulate(sub_bits_begin, sub_bits_end, MaskT{0});
+        result |= static_cast<MaskT>(sub_accumulation_result << start_element);
       }
       return result;
     }
