@@ -212,7 +212,7 @@ inline void store(void* ptr, VectorT value) {
 }
 
 template <typename VectorT>
-inline void unaligned_store(void* ptr, VectorT value) {
+inline void store_unaligned(void* ptr, VectorT value) {
   using UnalignedVector __attribute__((aligned(1))) = VectorT;
   *reinterpret_cast<UnalignedVector*>(ptr) = value;
 }
@@ -222,8 +222,12 @@ template <typename VectorT, size_t NUM_MASK_BITS = sizeof(VectorT) / sizeof(Vect
 inline MaskT comparison_to_bitmask(VectorT vec) {
 #if CLANG_COMPILER
   using MaskVecT __attribute__((ext_vector_type(NUM_MASK_BITS))) = bool;
-  MaskVecT mask = __builtin_convertvector(vec, MaskVecT);
-  return reinterpret_cast<MaskT&>(mask);
+  MaskVecT mask_vector = __builtin_convertvector(vec, MaskVecT);
+  MaskT mask = reinterpret_cast<MaskT&>(mask_vector);
+  if constexpr (NUM_MASK_BITS != 8 * sizeof(MaskT)) {
+    mask &= (1 << NUM_MASK_BITS) - 1;
+  }
+  return mask;
 #else
   return detail::gcc_comparison_to_bitmask<MaskT>(vec);
 #endif

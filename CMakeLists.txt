@@ -81,8 +81,9 @@ function(add_benchmark bm_name)
   add_executable(${bm_name} ${AUTOVEC_SOURCE_DIR}/${bm_name}.cpp)
   target_link_libraries(${bm_name} PRIVATE autovec_includes benchmark)
   target_compile_options(${bm_name} PRIVATE "${WARNING_OPTIONS}")
+
   # Keep the temporary files so we can inspect the generated assembly.
-  set_target_properties(${bm_name} PROPERTIES COMPILE_FLAGS "-save-temps=obj -fverbose-asm")
+  target_compile_options(${bm_name} PRIVATE "-save-temps=obj -fverbose-asm")
 endfunction()
 
 add_benchmark(compare_to_bitmask)
