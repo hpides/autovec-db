@@ -1,3 +1,5 @@
+#include <stddef.h>
+
 #include <array>
 #include <bit>
 #include <cstdint>
@@ -9,6 +11,7 @@
 #include "simd.hpp"
 
 static constexpr uint64_t NUM_ENTRIES = 15;
+static constexpr uint64_t NUM_LOOKUPS_PER_ITERATION = 1024;
 static constexpr uint64_t NO_MATCH = std::numeric_limits<uint64_t>::max();
 
 struct Entry {
@@ -17,7 +20,8 @@ struct Entry {
 };
 
 struct HashBucket {
-  alignas(16) std::array<uint8_t, NUM_ENTRIES> fingerprints;
+  // Valid fingerprints have their most significant bit set. MSB=0 indicates that there is no entry stored at this slot.
+  alignas(16) std::array<uint8_t, NUM_ENTRIES + 1> fingerprints;
   std::array<Entry, NUM_ENTRIES> entries;
 };
 
@@ -27,103 +31,119 @@ static_assert(sizeof(HashBucket) == 256, "Hash Bucket should be 256 Byte for thi
 
 template <typename FindFn>
 void BM_hash_bucket_get(benchmark::State& state) {
-  FindFn find_fn{};
+  std::mt19937 rng{std::random_device{}()};
+  std::uniform_int_distribution<> index_distribution(0, NUM_ENTRIES - 1);
+  // 2^64 is ~1.84e19, so we split the key range into existing and non-existing keys at 1e19
+  std::uniform_int_distribution<uint64_t> existing_key_distribution(0, 1e19);
+  std::uniform_int_distribution<uint64_t> non_existing_key_distribution(1e19 + 1);
+
   HashBucket bucket{};
-  bucket.fingerprints = {3, 8, 12, 10, 11, 6, 15, 1, 5, 14, 13, 2, 9, 4, 7};
-  bucket.entries = {Entry{30, 30},   Entry{80, 80},   Entry{120, 120}, Entry{100, 100}, Entry{110, 110},
-                    Entry{60, 60},   Entry{150, 150}, Entry{10, 10},   Entry{50, 50},   Entry{140, 140},
-                    Entry{130, 130}, Entry{20, 20},   Entry{90, 90},   Entry{40, 40},   Entry{70, 70}};
+  std::generate(bucket.fingerprints.begin(), bucket.fingerprints.end(), [&]() { return rng() | 128; });
+  bucket.fingerprints[NUM_ENTRIES] = 0;
+  std::generate(bucket.entries.begin(), bucket.entries.end(), [&]() {
+    return Entry{existing_key_distribution(rng), rng()};
+  });
 
-  // Seed rng for same benchmark runs.
-  std::mt19937 rng{345873456};
+  std::array<size_t, NUM_LOOKUPS_PER_ITERATION> lookup_indices;
+  std::generate(lookup_indices.begin(), lookup_indices.end(), [&]() {
+    if (rng() % 2 == 0) {
+      return index_distribution(rng);  // With ~50% probability, we look up a random existing element.
+    } else {
+      return -1;  // otherwise, we attempt to lookup a non-existing key
+    }
+  });
 
-  std::array<uint8_t, NUM_ENTRIES> lookup_fps = bucket.fingerprints;
-  std::shuffle(lookup_fps.begin(), lookup_fps.end(), rng);
+  std::array<uint8_t, NUM_LOOKUPS_PER_ITERATION> lookup_fps;
+  std::transform(lookup_indices.begin(), lookup_indices.end(), lookup_fps.begin(), [&](size_t index) {
+    if (index == -1ull) {
+      return static_cast<uint8_t>(rng() | 128);  // can collide, this is realistic
+    } else {
+      return bucket.fingerprints[index];
+    }
+  });
 
-  std::array<uint64_t, NUM_ENTRIES> lookup_keys{};
-  for (size_t i = 0; i < NUM_ENTRIES; ++i) {
-    lookup_keys[i] = lookup_fps[i] * 10;
-  }
+  std::array<uint64_t, NUM_LOOKUPS_PER_ITERATION> lookup_keys;
+  std::transform(lookup_indices.begin(), lookup_indices.end(), lookup_keys.begin(), [&](size_t index) {
+    if (index == -1ull) {
+      return non_existing_key_distribution(rng);
+    } else {
+      return bucket.entries[index].key;
+    }
+  });
 
+  // "leak" pointers so that successive DoNotOptimize calls invalidate it.
+  benchmark::DoNotOptimize(lookup_keys.data());
+  benchmark::DoNotOptimize(lookup_fps.data());
+
+  FindFn find_fn{};
   for (auto _ : state) {
-    for (size_t i = 0; i < NUM_ENTRIES; ++i) {
+    for (size_t i = 0; i < NUM_LOOKUPS_PER_ITERATION; ++i) {
       const uint64_t value = find_fn(bucket, lookup_keys[i], lookup_fps[i]);
-      assert(value != NO_MATCH);
+      assert((lookup_indices[i] == -1ull && value == NO_MATCH) ||
+             (lookup_indices[i] != -1ull && value == bucket.entries[lookup_indices[i]].value));
 
       benchmark::DoNotOptimize(value);
     }
   }
+
+  state.counters["TimePerLookup"] = benchmark::Counter(state.iterations() * NUM_LOOKUPS_PER_ITERATION,
+                                                       benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
-// We need to pass an offset here, as the higher matches need to check the second half of the entries array.
-uint64_t find_key_match(HashBucket& bucket, uint64_t key, uint64_t matches, size_t entry_offset) {
-  while (matches != 0) {
-    // The comparison returns 00000000 for a mismatch, so we need to divide by 8 to get the actual number of 0's.
-    uint32_t trailing_zeros = std::countr_zero(matches);
-    uint16_t match_pos = entry_offset + (trailing_zeros / 8);
+inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, uint64_t key,
+                                                          __uint128_t fingerprint_matches) {
+  if (fingerprint_matches == 0) {
+    return NO_MATCH;
+  }
 
-    // We give this a likely hint, as we expect the number of fingerprint collisions to be low. So on average, we
-    // want this to be the happy path and immediately return if possible.
+  auto process_half = [&](uint64_t half, size_t bit_offset) {
+    while (half != 0) {
+      int trailing_zeros = std::countr_zero(half);
+
+      // We know for a fact that trailing_zeros is a multiple of 8, but clang 15 doesn't properly optimize, and still
+      // produces shift-right 3, shift-left 4 to clear the lower 3 bits. Thus, we compute the address manually without
+      // the division.
+      static_assert(sizeof(bucket.entries[0]) % 8 == 0);
+      auto& bucket_entry = *reinterpret_cast<Entry*>(reinterpret_cast<std::byte*>(bucket.entries.data()) +
+                                                     (trailing_zeros + bit_offset) * (sizeof(Entry) / 8));
+
+      if (bucket_entry.key == key) [[likely]] {
+        return bucket_entry.value;
+      }
+
+      half &= ~(255ul << trailing_zeros);
+    }
+    return NO_MATCH;
+  };
+
+  auto result = process_half(static_cast<uint64_t>(fingerprint_matches), 0);
+  if (result != NO_MATCH) {
+    return result;
+  }
+  return process_half(static_cast<uint64_t>(fingerprint_matches >> 64), 64);
+}
+
+inline uint64_t key_matches_from_fingerprint_matches_bit(HashBucket& bucket, uint64_t key,
+                                                         uint16_t fingerprint_matches) {
+  while (fingerprint_matches != 0) {
+    int trailing_zeros = std::countr_zero(fingerprint_matches);
+    int match_pos = trailing_zeros;
+
+    // We expect fingerprint collisions to be unlikely
     if (bucket.entries[match_pos].key == key) [[likely]] {
       return bucket.entries[match_pos].value;
     }
 
-    // We want to remove all 1's that we just matched. So we set all 8 bits that we just matched and invert the
-    // number for a clean 11111111...00000000...11111111 mask.
-    matches &= ~(255ul << trailing_zeros);
+    // Clear the fingerprint match bit (which is now the least significant set bit)
+    fingerprint_matches &= fingerprint_matches - 1;
   }
   return NO_MATCH;
 }
 
-#if defined(__aarch64__)
-struct neon_find {
-  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    uint8_t* fingerprints = bucket.fingerprints.data();
-
-    // Load the fingerprints into a SIMD register.
-    uint8x16_t fp_vector = vld1q_u8(fingerprints);
-
-    // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
-    uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
-    lookup_fp[15] = 0;
-
-    // Compare fingerprints.
-    auto matching_fingerprints = reinterpret_cast<__uint128_t>(vceqq_u8(fp_vector, lookup_fp));
-
-    // We could do this with a single movemask on x86, but ARM NEON does not support this. So we split our range into
-    // two values that we check after each other. The extraction here is a no-op, as the __uint128_t result is stored in
-    // two 64 bit registers anyway. This is only a logical conversion.
-    uint64_t low_matches = *reinterpret_cast<uint64_t*>(&matching_fingerprints);
-    uint64_t high_matches = *(reinterpret_cast<uint64_t*>(&matching_fingerprints) + 1);
-
-    uint64_t low_match = find_key_match(bucket, key, low_matches, 0);
-    if (low_match != NO_MATCH) {
-      return low_match;
-    }
-
-    return find_key_match(bucket, key, high_matches, 8);
-  }
-};
-
-BENCHMARK(BM_hash_bucket_get<neon_find>)->BM_ARGS;
-
-#elif defined(__x86_64__)
-struct x86_find {
-  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    // TODO
-    uint8_t* fingerprints = bucket.fingerprints.data();
-    (void)fingerprints;
-    (void)key;
-    (void)fingerprint;
-    return 13;
-  }
-};
-
-BENCHMARK(BM_hash_bucket_get<x86_find>)->BM_ARGS;
-#endif
-
 struct naive_scalar_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    // Somewhat of a baseline (not really, since entries are stored as key-value pairs. I'd guess for this to be
+    // auto-vectorizable, it would have to be struct-of-array layout (all keys, then all values).
     for (size_t i = 0; i < NUM_ENTRIES; ++i) {
       if (bucket.fingerprints[i] == fingerprint && bucket.entries[i].key == key) {
         return bucket.entries[i].value;
@@ -132,53 +152,141 @@ struct naive_scalar_find {
     return NO_MATCH;
   }
 };
+BENCHMARK(BM_hash_bucket_get<naive_scalar_find>)->BM_ARGS;
 
-struct autovec_scalar_find {
-  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    // TODO: This is not the solution we want yet, it's just a dummy WIP state.
-    alignas(16) std::array<bool, 16> matches{false};
+struct naive_scalar_key_only_find {
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t /*fingerprint*/) {
     for (size_t i = 0; i < NUM_ENTRIES; ++i) {
-      matches[i] = bucket.fingerprints[i] == fingerprint;
-    }
-
-    for (size_t i = 0; i < NUM_ENTRIES; ++i) {
-      if (matches[i] && bucket.entries[i].key == key) {
+      if (bucket.entries[i].key == key) {
         return bucket.entries[i].value;
       }
     }
     return NO_MATCH;
   }
 };
+BENCHMARK(BM_hash_bucket_get<naive_scalar_key_only_find>)->BM_ARGS;
 
-struct vector_find {
-  using vec8x16 = uint8_t __attribute__((vector_size(16)));
+struct autovec_scalar_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    uint8_t* fingerprints = bucket.fingerprints.data();
+    // TODO: This code is okay-ish C++ for autovectorization.
+    // However, clang is currently broken when extracting values from the 16-byte char array as a bigger int
+    // (https://github.com/llvm/llvm-project/issues/59937)
+    // and GCC doesn't autovectorize the match-from-fingerprints logic well
+    // playground: https://godbolt.org/z/Eoezxh9E3
+    uint8_t* __restrict fingerprint_data = std::assume_aligned<16>(bucket.fingerprints.data());
 
-    // Load the fingerprints into a SIMD register.
-    vec8x16 fp_vector = *reinterpret_cast<vec8x16*>(fingerprints);
-
-    // Broadcast the fingerprint to compare against into a SIMD register. We only use 15 values, so the last one is 0.
-    vec8x16 lookup_fp = simd::broadcast<vec8x16>(fingerprint);
-    lookup_fp[15] = 0;
-
-    // Compare fingerprints.
-    auto matching_fingerprints = reinterpret_cast<__uint128_t>(fp_vector == lookup_fp);
-
-    uint64_t low_matches = static_cast<uint64_t>(matching_fingerprints);
-    uint64_t high_matches = static_cast<uint64_t>(matching_fingerprints >> 64);
-
-    uint64_t low_match = find_key_match(bucket, key, low_matches, 0);
-    if (low_match != NO_MATCH) {
-      return low_match;
+    // Intentionally not initialized to avoid zeroing memory, as we write all elements directly anyway.
+    alignas(16) std::array<uint8_t, 16> matches;
+    for (size_t i = 0; i < 16; ++i) {
+      matches[i] = fingerprint_data[i] == fingerprint ? 0xff : 0;
     }
 
-    return find_key_match(bucket, key, high_matches, 8);
+    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t&>(matches[0]));
   }
 };
-
-BENCHMARK(BM_hash_bucket_get<naive_scalar_find>)->BM_ARGS;
 BENCHMARK(BM_hash_bucket_get<autovec_scalar_find>)->BM_ARGS;
-BENCHMARK(BM_hash_bucket_get<vector_find>)->BM_ARGS;
+
+struct vector_bytemask_find {
+  using uint8x16 = simd::GccVec<uint8_t, 16>::T;
+
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    uint8x16 fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
+    uint8x16 lookup_fp = simd::broadcast<uint8x16>(fingerprint);
+    uint8x16 matching_fingerprints = fp_vector == lookup_fp;
+
+    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(matching_fingerprints));
+  }
+};
+BENCHMARK(BM_hash_bucket_get<vector_bytemask_find>)->BM_ARGS;
+
+#if CLANG_COMPILER
+struct vector_bitmask_find {
+  using uint8x16 = simd::GccVec<uint8_t, 16>::T;
+  using boolx16 = simd::ClangBitmask<16>::T;
+
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    uint8x16 fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
+    uint8x16 lookup_fp = simd::broadcast<uint8x16>(fingerprint);
+
+    boolx16 matching_fingerprints_bits_vec = __builtin_convertvector(fp_vector == lookup_fp, boolx16);
+    uint16_t matching_fingerprints_bits = reinterpret_cast<uint16_t&>(matching_fingerprints_bits_vec);
+
+    return key_matches_from_fingerprint_matches_bit(bucket, key, matching_fingerprints_bits);
+  }
+};
+BENCHMARK(BM_hash_bucket_get<vector_bitmask_find>)->BM_ARGS;
+#endif
+
+#if defined(__aarch64__)
+struct neon_bytemask_find {
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    uint8x16_t fp_vector = vld1q_u8(bucket.fingerprints.data());
+
+    // Broadcast the fingerprint to compare against.
+    uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
+    uint8x16_t fingerprint_matches = vceqq_u8(fp_vector, lookup_fp);
+
+    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(fingerprint_matches));
+  }
+};
+BENCHMARK(BM_hash_bucket_get<neon_bytemask_find>)->BM_ARGS;
+
+struct neon_bitmask_find {
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    uint8x16_t fp_vector = vld1q_u8(bucket.fingerprints.data());
+
+    // Broadcast the fingerprint to compare against.
+    uint8x16_t lookup_fp = vmovq_n_u8(fingerprint);
+    uint8x16_t fingerprint_matches = vceqq_u8(fp_vector, lookup_fp);
+
+    constexpr uint8x16_t bit_mask = {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128};
+    uint16_t matches = 0;
+    uint8x16_t masked_matches = vandq_u8(fingerprint_matches, bit_mask);
+    matches |= static_cast<uint16_t>(vaddv_u8(vget_low_u8(masked_matches)));
+    matches |= static_cast<uint16_t>(vaddv_u8(vget_high_u8(masked_matches))) << 8;
+
+    return key_matches_from_fingerprint_matches_bit(bucket, key, matches);
+  }
+};
+BENCHMARK(BM_hash_bucket_get<neon_bitmask_find>)->BM_ARGS;
+#endif
+
+#if defined(__x86_64__)
+struct x86_bytemask_find {
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    __m128i* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
+    __m128i lookup_fp = _mm_set1_epi8(fingerprint);
+    __m128i fingerprint_matches = _mm_cmpeq_epi8(*fp_vector, lookup_fp);
+
+    return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(fingerprint_matches));
+  }
+};
+BENCHMARK(BM_hash_bucket_get<x86_bytemask_find>)->BM_ARGS;
+
+struct x86_bitmask_find {
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    __m128i* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
+    __m128i lookup_fp = _mm_set1_epi8(fingerprint);
+    __m128i fingerprint_matches = _mm_cmpeq_epi8(*fp_vector, lookup_fp);
+    uint16_t fingerprint_matches_bits = _mm_movemask_epi8(fingerprint_matches);
+
+    return key_matches_from_fingerprint_matches_bit(bucket, key, fingerprint_matches_bits);
+  }
+};
+BENCHMARK(BM_hash_bucket_get<x86_bitmask_find>)->BM_ARGS;
+#endif
+
+#if AVX512_AVAILABLE
+struct x86_avx512_bitmask_find {
+  uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
+    __m128i* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
+    __m128i lookup_fp = _mm_set1_epi8(fingerprint);
+    uint16_t fingerprint_matches = _mm_cmpeq_epi8_mask(*fp_vector, lookup_fp);
+
+    return key_matches_from_fingerprint_matches_bit(bucket, key, fingerprint_matches);
+  }
+};
+BENCHMARK(BM_hash_bucket_get<x86_avx512_bitmask_find>)->BM_ARGS;
+#endif
 
 BENCHMARK_MAIN();
