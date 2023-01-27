@@ -598,7 +598,7 @@ struct x86_512_scan {
     for (size_t batch = 0; batch < num_batches; ++batch) {
       const size_t offset = batch * BYTES_PER_BATCH;
       const auto* pos = reinterpret_cast<const __m512i*>(compressed_data + offset);
-      __m512i batch_lane = _mm512_loadu_si512(pos);
+      const __m512i batch_lane = _mm512_loadu_si512(pos);
       decompress_batch(batch_lane, callback);
     }
   }
