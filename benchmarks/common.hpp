@@ -102,7 +102,3 @@ template <> struct UnsignedInt<2> { using T = uint16_t; };
 template <> struct UnsignedInt<4> { using T = uint32_t; };
 template <> struct UnsignedInt<8> { using T = uint64_t; };
 // clang-format on
-
-#if defined(__x86_64__)
-#include <immintrin.h>
-#endif

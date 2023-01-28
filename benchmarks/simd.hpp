@@ -1,7 +1,15 @@
+#include <limits>
+#include <numeric>
+#include <algorithm>
+
 #include "common.hpp"
 
 #if defined(__aarch64__)
 #include <arm_neon.h>
+#endif
+
+#if defined(__x86_64__)
+#include <immintrin.h>
 #endif
 
 namespace simd {
@@ -29,6 +37,33 @@ template <> struct NeonVecT<8> { using T = uint64x2_t; };
 // clang-format on
 #endif
 
+// Produces e.g. {1, 2, 4, 8} for (uint64x4) or {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128} for uint8x16
+template <typename VecT>
+VecT positional_single_bit_mask() {
+  // We'd want this to be constexpr, but we can't, because the vector types can't be used in a constexpr way
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101651
+  VecT result{};
+  using ElementT = std::decay_t<decltype(result[0])>;
+  static_assert(std::is_unsigned_v<ElementT>);
+
+  size_t vector_elements = sizeof(VecT) / sizeof(ElementT);
+
+  ElementT current_value = 1;
+  for (size_t i = 0; i < vector_elements; ++i) {
+    result[i] = current_value;
+    if (current_value <= std::numeric_limits<ElementT>::max() / 2) {
+      current_value *= 2;
+    } else {
+      current_value = 1;
+    }
+  }
+
+  return result;
+}
+
+/*
+ * NAMESPACE DETAIL
+ */
 namespace detail {
 
 #if defined(__aarch64__)
@@ -121,44 +156,25 @@ inline VectorT builtin_shuffle_vector(VectorT vec, MaskT mask) {
 
 // TODO: maybe this is more efficient with a magic multiply (https://zeux.io/2022/09/02/vpexpandb-neon-z3/)
 template <typename MaskT, typename VectorT>
-MaskT gcc_comparison_to_bitmask(VectorT matches) {
-  using ElementT = decltype(VectorT{}[0]);
+MaskT gcc_comparison_to_bitmask(VectorT bytemask) {
+  using ElementT = std::decay_t<decltype(bytemask[0])>;
   constexpr size_t NUM_ELEMENTS = sizeof(VectorT) / sizeof(ElementT);
-
   static_assert(sizeof(MaskT) * 8 >= NUM_ELEMENTS, "Number of elements greater than size of mask");
 
-  // TODO: I want to do this, but I'm not quite sure how to handle the constexpr lambda return value.
+  const VectorT element_masks = simd::positional_single_bit_mask<VectorT>();
+  const auto single_bits_set = bytemask & element_masks;
 
-  //  constexpr auto get_and_mask = [] {
-  //    if constexpr (NUM_ELEMENTS == 1) {
-  //      return VectorT{1};
-  //    } else if (NUM_ELEMENTS == 2) {
-  //      return VectorT{1, 2};
-  //    } else if (NUM_ELEMENTS == 4) {
-  //      return VectorT{1, 2, 4, 8};
-  //    } else if (NUM_ELEMENTS == 8) {
-  //      using XX = GccVec<ElementT, sizeof(ElementT) * NUM_ELEMENTS>::T;
-  //      return XX{1, 2, 4, 8, 16, 32, 64, 128};
-  //    } else if (NUM_ELEMENTS == 16 && sizeof(ElementT) >= 2) {
-  //      using XX = GccVec<ElementT, sizeof(ElementT) * NUM_ELEMENTS>::T;
-  //      return XX{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768};
-  //    } else {
-  //      static_assert(always_false<VectorT>, "GCC is not your friend. Use clang :)");
-  //    }
-  //  };
-  //
-  //  constexpr VectorT and_mask = get_and_mask();
-  //  auto single_bits = matches & and_mask;
-  //
-  //  alignas(alignof(VectorT)) std::array<ElementT, NUM_ELEMENTS> single_bit_array{};
-  //  std::memcpy(&single_bit_array, &single_bits, sizeof(single_bit_array));
-  //  return std::accumulate(single_bit_array.begin(), single_bit_array.end(), 0u);
+  const ElementT* element_ptr = reinterpret_cast<const ElementT*>(&single_bits_set);
+  constexpr size_t ELEMENTS_COMBINED_PER_ITERATION = sizeof(ElementT) * 8;
 
-  MaskT mask = 0;
-  for (size_t i = 0; i < NUM_ELEMENTS; ++i) {
-    mask |= matches[i] ? static_cast<MaskT>(1) << i : 0;
+  MaskT result = 0;
+  for (size_t start_element = 0; start_element < NUM_ELEMENTS; start_element += ELEMENTS_COMBINED_PER_ITERATION) {
+    const auto sub_bits_begin = element_ptr + start_element;
+    const auto sub_bits_end = std::min(sub_bits_begin + ELEMENTS_COMBINED_PER_ITERATION, element_ptr + NUM_ELEMENTS);
+    const MaskT sub_accumulation_result = std::accumulate(sub_bits_begin, sub_bits_end, MaskT{0});
+    result |= sub_accumulation_result << start_element;
   }
-  return mask;
+  return result;
 }
 
 }  // namespace detail
@@ -196,7 +212,7 @@ inline VectorT shuffle_vector(VectorT vec, MaskT mask) {
 #endif
 }
 
-template <typename VectorT, typename ElementT = decltype(std::declval<VectorT>()[0])>
+template <typename VectorT, typename ElementT>
 inline VectorT broadcast(ElementT value) {
   return value - VectorT{};
 }

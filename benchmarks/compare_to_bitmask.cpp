@@ -187,7 +187,7 @@ struct gcc_vector_naive_bitmask {
       // platform-specific intrinsics. However, this pessimizes optimizations of multiple vector operations: Clang can
       // optimize
       // __builtin_convertvector(a == b, boolvector) into a single instruction, the GCC approach wouldn't do that.
-      auto subresult_bool_vec = subinput1 == subinput2;
+      VecT subresult_bool_vec = subinput1 == subinput2;
       MaskT result = 0;
       for (size_t i = 0; i < NUM_VECTOR_ELEMENTS; ++i) {
         result |= subresult_bool_vec[i] ? 1ull << i : 0;
@@ -206,26 +206,6 @@ struct sized_gcc_vector_naive_bitmask {
   using Benchmark = gcc_vector_naive_bitmask<VECTOR_BITS, InputT_>;
 };
 
-// Produces e.g. {1, 2, 4, 8} for (uint64x4) or {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128} for uint8x16
-template <typename VecT, std::unsigned_integral ElementT>
-VecT positional_single_bit_mask() {
-  VecT result{};
-
-  size_t vector_elements = sizeof(VecT) / sizeof(ElementT);
-
-  ElementT current_value = 1;
-  for (size_t i = 0; i < vector_elements; ++i) {
-    result[i] = current_value;
-    if (current_value <= std::numeric_limits<ElementT>::max() / 2) {
-      current_value *= 2;
-    } else {
-      current_value = 1;
-    }
-  }
-
-  return result;
-}
-
 template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct gcc_vector_custom_bitmask {
   using MaskT = MaskT_;
@@ -241,27 +221,8 @@ struct gcc_vector_custom_bitmask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
-      // We'd want this to be constexpr, but we can't:
-      // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101651
-      VecT element_masks = positional_single_bit_mask<VecT, ElementT>();
-
-      auto subresult_bool_vec = subinput1 == subinput2;
-      auto single_bits_set = subresult_bool_vec & element_masks;
-
-      alignas(alignof(VecT)) std::array<ElementT, NUM_VECTOR_ELEMENTS> single_bit_array{};
-      std::memcpy(&single_bit_array, &single_bits_set, sizeof(single_bit_array));
-
-      constexpr size_t ELEMENTS_COMBINED_PER_ITERATION = sizeof(ElementT) * 8;
-
-      MaskT result = 0;
-      for (size_t start_element = 0; start_element < NUM_VECTOR_ELEMENTS;
-           start_element += ELEMENTS_COMBINED_PER_ITERATION) {
-        auto sub_bits_begin = single_bit_array.begin() + start_element;
-        auto sub_bits_end = std::min(sub_bits_begin + ELEMENTS_COMBINED_PER_ITERATION, single_bit_array.end());
-        MaskT sub_accumulation_result = std::accumulate(sub_bits_begin, sub_bits_end, MaskT{0});
-        result |= sub_accumulation_result << start_element;
-      }
-      return result;
+      VecT subresult_bool_vec = subinput1 == subinput2;
+      return simd::detail::gcc_comparison_to_bitmask<MaskT>(subresult_bool_vec);
     }
   };
 
