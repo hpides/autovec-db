@@ -63,6 +63,8 @@ struct alignas(ALIGN) AlignedArray {
   DataT& operator[](size_t i) noexcept { return arr[i]; }
   const DataT& operator[](size_t i) const noexcept { return arr[i]; }
 
+  size_t size() const noexcept { return arr.size(); }
+
   auto operator<=>(const AlignedArray& other) const = default;
 };
 

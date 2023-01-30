@@ -470,6 +470,9 @@ void BM_compare_to_bitmask(benchmark::State& state) {
     const auto result = bench_fn(input1, input2);
     benchmark::DoNotOptimize(result);
   }
+
+  state.counters["PerValue"] =
+      benchmark::Counter(state.iterations() * input1.size(), benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 using Input_64B_as_64x1B = AlignedArray<uint8_t, 64, 64>;

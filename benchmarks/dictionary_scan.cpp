@@ -559,6 +559,9 @@ void BM_dictionary_scan(benchmark::State& state) {
     const RowId num_matches = scan_fn(column, filter_value, &matching_rows);
     benchmark::DoNotOptimize(num_matches);
   }
+
+  state.counters["PerValue"] =
+      benchmark::Counter(state.iterations() * NUM_ROWS, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 // #define BM_ARGS

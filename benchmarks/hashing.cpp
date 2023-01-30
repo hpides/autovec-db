@@ -70,6 +70,9 @@ void BM_hashing(benchmark::State& state) {
     const HashArray hashes = hash_fn(keys_to_hash, required_bits);
     benchmark::DoNotOptimize(hashes);
   }
+
+  state.counters["PerValue"] = benchmark::Counter(state.iterations() * keys_to_hash.size(),
+                                                  benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 ///////////////////////

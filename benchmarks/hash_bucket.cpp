@@ -86,8 +86,8 @@ void BM_hash_bucket_get(benchmark::State& state) {
     }
   }
 
-  state.counters["TimePerLookup"] = benchmark::Counter(state.iterations() * NUM_LOOKUPS_PER_ITERATION,
-                                                       benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+  state.counters["PerLookup"] = benchmark::Counter(state.iterations() * NUM_LOOKUPS_PER_ITERATION,
+                                                   benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, uint64_t key,
