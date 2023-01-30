@@ -83,7 +83,7 @@ function(add_benchmark bm_name)
   target_compile_options(${bm_name} PRIVATE "${WARNING_OPTIONS}")
 
   # Keep the temporary files so we can inspect the generated assembly.
-  target_compile_options(${bm_name} PRIVATE "-save-temps=obj -fverbose-asm")
+  target_compile_options(${bm_name} PRIVATE "-save-temps=obj" "-fverbose-asm")
 endfunction()
 
 add_benchmark(compare_to_bitmask)

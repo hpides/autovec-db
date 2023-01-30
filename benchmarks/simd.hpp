@@ -1,6 +1,6 @@
+#include <algorithm>
 #include <limits>
 #include <numeric>
-#include <algorithm>
 
 #include "common.hpp"
 
