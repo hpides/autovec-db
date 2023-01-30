@@ -327,24 +327,145 @@ struct neon_scan {
 #endif
 
 #if defined(__x86_64__)
-
-// Important: _mm*_mask_compressstore[u]() is not available until AVX512. So anything older must run without it.
-struct x86_128_scan {
+struct x86_128_scan_manual_inner_loop {
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
 
-  // TODO
-  // Approaches from https://stackoverflow.com/a/41958528/12345551
-  //  * Movemask + manual inner countr_zero loop
-  //  * PEXT to extract the bytes where the comparison matched.
-  //
-  //  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
-  //  }
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict column_data = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    RowId num_matching_rows = 0;
+    static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
+
+    for (RowId row = 0; row < NUM_ROWS; row += NUM_MATCHES_PER_VECTOR) {
+      const auto* table_values = reinterpret_cast<const __m128i*>(column_data + row);
+      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+      unsigned int matches_bits = _mm_movemask_ps(reinterpret_cast<__m128>(compare_result));
+
+      // TODO: Take a look at this in vtune -- on skylake, the assembler doesn't look too bad, but we're 4x slower
+      // than predication below
+      while (matches_bits != 0) {
+        const int matching_element = std::countr_zero(matches_bits);
+        output[num_matching_rows++] = row + matching_element;
+        matches_bits &= matches_bits - 1;
+      }
+    }
+    return num_matching_rows;
+  }
 };
 
+struct x86_128_scan_predication {
+  static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
+
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict column_data = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    RowId num_matching_rows = 0;
+    static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
+
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      const auto* table_values = reinterpret_cast<const __m128i*>(column_data + chunk_start_row);
+      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+
+      for (RowId row_offset = 0; row_offset < NUM_MATCHES_PER_VECTOR; ++row_offset) {
+        output[num_matching_rows] = chunk_start_row + row_offset;
+        num_matching_rows += reinterpret_cast<const uint32_t*>(&compare_result)[row_offset] & 1;
+      }
+    }
+    return num_matching_rows;
+  }
+};
+
+struct x86_128_scan_pext {
+  static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
+
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict column_data = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    RowId num_matching_rows = 0;
+    static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
+
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      const auto* table_values = reinterpret_cast<const __m128i*>(column_data + chunk_start_row);
+      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+
+      const __m128i row_indices = _mm_add_epi32(_mm_set1_epi32(chunk_start_row), _mm_set_epi32(3, 2, 1, 0));
+
+      const uint64_t lower_mask = _mm_extract_epi64(compare_result, 0);
+      const uint64_t* lower_indices = reinterpret_cast<const uint64_t*>(&row_indices);
+      const uint64_t lower_compressed_indices = _pext_u64(*lower_indices, lower_mask);
+      const uint64_t lower_match_bits = _mm_popcnt_u64(lower_mask);
+
+      const uint64_t upper_mask = _mm_extract_epi64(compare_result, 1);
+      const uint64_t* upper_indices = reinterpret_cast<const uint64_t*>(&row_indices) + 1;
+      const uint64_t upper_compressed_indices = _pext_u64(*upper_indices, upper_mask);
+      const uint64_t upper_match_bits = _mm_popcnt_u64(upper_mask);
+
+      std::memcpy(output + num_matching_rows, &lower_compressed_indices, sizeof(lower_compressed_indices));
+      num_matching_rows += lower_match_bits / 32;
+
+      std::memcpy(output + num_matching_rows, &upper_compressed_indices, sizeof(upper_compressed_indices));
+      num_matching_rows += upper_match_bits / 32;
+    }
+    return num_matching_rows;
+  }
+};
+
+struct x86_128_scan_shuffle {
+  static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
+
+  static constexpr uint8_t SDC = -1;  // SDC == SHUFFLE_DONT_CARE
+  alignas(16) static constexpr std::array<std::array<uint8_t, 16>, 16> MATCHES_TO_SHUFFLE_MASK = {
+      // clang-format off
+      std::array<uint8_t, 16>{SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  0,   1,   2,   3,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  4,   5,   6,   7,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  0,   1,   2,   3,     4,   5,   6,   7,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  8,   9,   10, 11,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  0,   1,   2,   3,     8,   9,  10,  11,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  4,   5,   6,   7,     8,   9,  10,  11,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  0,   1,   2,   3,     4,   5,   6,   7,     8,   9,  10,  11,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{ 12,  13,  14,  15,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  0,   1,   2,   3,    12,  13,  14,  15,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  4,   5,   6,   7,    12,  13,  14,  15,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  0,   1,   2,   3,     4,   5,   6,   7,    12,  13,  14,  15,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  8,   9,   10, 11,    12,  13,  14,  15,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  0,   1,   2,   3,     8,   9,  10,  11,    12,  13,  14,  15,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  4,   5,   6,   7,     8,   9,  10,  11,    12,  13,  14,  15,   SDC, SDC, SDC, SDC},
+      std::array<uint8_t, 16>{  0,   1,   2,   3,     4,   5,   6,   7,     8,   9,  10,  11,    12,  13,  14,  15},
+      //clang-format on
+  };
+
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict column_data = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    RowId num_matching_rows = 0;
+    static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
+
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      const auto* table_values = reinterpret_cast<const __m128i*>(column_data + chunk_start_row);
+      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+      const unsigned int packed_compare_result = _mm_movemask_ps(reinterpret_cast<const __m128&>(compare_result));
+
+      const __m128i row_indices = _mm_add_epi32(_mm_set1_epi32(chunk_start_row), _mm_set_epi32(3, 2, 1, 0));
+      const __m128i* shuffle_mask = reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result);
+      const __m128i compressed_indices = _mm_shuffle_epi8(row_indices, *shuffle_mask);
+
+      _mm_storeu_si128(reinterpret_cast<__m128i_u*>(output + num_matching_rows), compressed_indices);
+
+      num_matching_rows += _mm_popcnt_u32(packed_compare_result);
+    }
+    return num_matching_rows;
+  }
+};
+
+// TODO: AVX2?
 #endif
 
 #if AVX512_AVAILABLE
-
 enum class x86_512_scan_strategy { COMPRESSSTORE, COMPRESS_PLUS_STORE };
 
 template <x86_512_scan_strategy STRATEGY>
@@ -368,6 +489,7 @@ struct x86_512_scan {
       __m512i rows_to_match = _mm512_load_epi32(rows + i);
       __mmask16 matches = _mm512_cmplt_epi32_mask(rows_to_match, filter_vec);
 
+      // TODO is there any reason why we would use compress plus store over compressstore?
       if constexpr (STRATEGY == x86_512_scan_strategy::COMPRESSSTORE) {
         _mm512_mask_compressstoreu_epi32(output + num_matching_rows, matches, row_ids);
       } else if (STRATEGY == x86_512_scan_strategy::COMPRESS_PLUS_STORE) {
@@ -458,7 +580,10 @@ BENCHMARK(BM_dictionary_scan<neon_scan>)->BM_ARGS;
 #endif
 
 #if defined(__x86_64__)
-// BENCHMARK(BM_dictionary_scan<x86_128_scan>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_128_scan_manual_inner_loop>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_128_scan_predication>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_128_scan_pext>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_128_scan_shuffle>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
