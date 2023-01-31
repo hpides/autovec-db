@@ -113,26 +113,18 @@ struct vector_128_scan_shuffle {
 #if GCC_COMPILER || defined(__aarch64__)
   // We need 4 values here, and they could be of uint8_t to save memory. However, this has a conversion cost before the
   // shuffle in GCC and Neon, so we use the larger uint32_t to avoid that runtime cost (~60% in one experiment!)
-  using ShuffleVec = RowVec;
-  static constexpr RowId SDC = -1;  // SDC == SHUFFLE_DONT_CARE
+  using ShuffleIndexT = RowId;
 #else
   // The entire lookup table fits into a single cache line (4B x 16 = 64B).
-  using ShuffleVec = simd::GccVec<uint8_t, NUM_MATCHES_PER_VECTOR>::T;
-  static constexpr uint8_t SDC = -1;  // SDC == SHUFFLE_DONT_CARE
+  using ShuffleIndexT = uint8_t;
 #endif
+
+  using ShuffleVec = simd::GccVec<ShuffleIndexT, 4 * sizeof(ShuffleIndexT)>::T;
 
   static_assert(NUM_MATCHES_PER_VECTOR == 4);
 
-  // TODO: Use lookup_table_for_shuffle_mask_by_comparison_result
-  alignas(64) static constexpr std::array MATCHES_TO_SHUFFLE_MASK = {
-      ShuffleVec{/*0000*/ SDC, SDC, SDC, SDC}, ShuffleVec{/*0001*/ 0, SDC, SDC, SDC},
-      ShuffleVec{/*0010*/ 1, SDC, SDC, SDC},   ShuffleVec{/*0011*/ 0, 1, SDC, SDC},
-      ShuffleVec{/*0100*/ 2, SDC, SDC, SDC},   ShuffleVec{/*0101*/ 0, 2, SDC, SDC},
-      ShuffleVec{/*0110*/ 1, 2, SDC, SDC},     ShuffleVec{/*0111*/ 0, 1, 2, SDC},
-      ShuffleVec{/*1000*/ 3, SDC, SDC, SDC},   ShuffleVec{/*1001*/ 0, 3, SDC, SDC},
-      ShuffleVec{/*1010*/ 1, 3, SDC, SDC},     ShuffleVec{/*1011*/ 0, 1, 3, SDC},
-      ShuffleVec{/*1100*/ 2, 3, SDC, SDC},     ShuffleVec{/*1101*/ 0, 2, 3, SDC},
-      ShuffleVec{/*1110*/ 1, 2, 3, SDC},       ShuffleVec{/*1111*/ 0, 1, 2, 3}};
+  alignas(64) static constexpr std::array<std::array<ShuffleIndexT, 4>, 16> MATCHES_TO_SHUFFLE_MASK
+    = lookup_table_for_compressed_offsets_by_comparison_result<4, ShuffleIndexT, static_cast<ShuffleIndexT>(-1)>();
 
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     const DictEntry* __restrict rows = column.aligned_data();
@@ -151,7 +143,7 @@ struct vector_128_scan_shuffle {
       const uint8_t mask = simd::comparison_to_bitmask<DictVec, 4>(matches);
       assert(mask < 16 && "Mask cannot have more than 4 bits set.");
 
-      const ShuffleVec shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
+      const ShuffleVec shuffle_mask = simd::load<ShuffleVec>(MATCHES_TO_SHUFFLE_MASK[mask].data());
       const RowVec compressed_rows = simd::shuffle_vector(row_ids, shuffle_mask);
       simd::store_unaligned(output + num_matching_rows, compressed_rows);
       num_matching_rows += std::popcount(mask);
@@ -214,16 +206,18 @@ struct vector_512_scan {
     return simd::load<ShuffleMask16Elements>(combined_mask.data());
   }
 
+  alignas(64) static constexpr auto MATCHES_TO_SHUFFLE_MASK_4_BIT =
+      lookup_table_for_compressed_offsets_by_comparison_result<4, ShuffleVecElementT, SDC>();
   ShuffleMask16Elements get_shuffle_mask_from_4bit(uint16_t mask) {
-    using VecScan = vector_128_scan_shuffle;
-    using ShuffleVec4 = VecScan::ShuffleVec;
-
     alignas(64) std::array<ShuffleVecElementT, 16> combined_mask{};
     size_t first_empty_slot = 0;
 
+    using ShuffleMask4Elements = simd::GccVec<ShuffleVecElementT, 4 * sizeof(ShuffleVecElementT)>::T;
+
     for (uint8_t i = 0; i < 16; i += 4) {
       const uint8_t current_mask = (mask >> i) & 0xF;
-      const ShuffleVec4 current_shuffle_mask = VecScan::MATCHES_TO_SHUFFLE_MASK[current_mask] + i;
+      auto current_shuffle_mask = simd::load<ShuffleMask4Elements>(MATCHES_TO_SHUFFLE_MASK_4_BIT[current_mask].data());
+      current_shuffle_mask += i;
       std::memcpy(combined_mask.data() + first_empty_slot, &current_shuffle_mask, sizeof(current_shuffle_mask));
       first_empty_slot += std::popcount(current_mask);
     }
@@ -426,7 +420,8 @@ struct x86_128_scan_shuffle {
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
 
   static constexpr uint8_t SDC = -1;  // SDC == SHUFFLE_DONT_CARE
-  // TODO: Maybe use lookup_table_for_shuffle_mask_by_comparison_result?
+  // TODO: Maybe use lookup_table_for_shuffle_mask_by_comparison_result? -- this is also duplicated in the NEON
+  // implementation
   alignas(16) static constexpr std::array<std::array<uint8_t, 16>, 16> MATCHES_TO_SHUFFLE_MASK{
       // clang-format off
       std::array<uint8_t, 16>{SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
@@ -543,8 +538,6 @@ struct x86_256_avx2_scan_shuffle {
     return num_matching_rows;
   }
 };
-
-// TODO: AVX2?
 #endif
 
 #if AVX512_AVAILABLE
@@ -671,7 +664,7 @@ BENCHMARK(BM_dictionary_scan<x86_128_scan_pext>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_128_scan_shuffle>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_128_scan_add>)->BM_ARGS;
 
-BENCHMARK(BM_dictionary_scan<x86_256_avx2_scan_shuffle>)->BM_ARGS;
+// BENCHMARK(BM_dictionary_scan<x86_256_avx2_scan_shuffle>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
