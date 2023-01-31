@@ -192,11 +192,12 @@ struct vector_512_scan {
     uint8_t hi_mask = mask >> 8;
     size_t num_lo_matches = std::popcount(lo_mask);
 
-    auto& lo_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[lo_mask];
-    auto& hi_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[hi_mask];
+    const auto& lo_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[lo_mask];
+    const auto& hi_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[hi_mask];
 
+    // TODO: 0-initialization is weird here, we'd want all elements to be SDC?
     alignas(64) std::array<ShuffleVecElementT, 16> combined_mask{0};
-    std::memcpy(combined_mask.data(), lo_shuffle_mask.data(), lo_shuffle_mask.size());
+    std::memcpy(combined_mask.data(), lo_shuffle_mask.data(), sizeof(lo_shuffle_mask));
 
     using ShuffleMask8Elements = simd::GccVec<ShuffleVecElementT, 8 * sizeof(ShuffleVecElementT)>::T;
     auto upper_mask = simd::load<ShuffleMask8Elements>(hi_shuffle_mask.data());
