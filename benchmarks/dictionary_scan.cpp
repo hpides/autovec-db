@@ -364,11 +364,14 @@ struct x86_128_scan_predication {
 
     for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       const auto* table_values = reinterpret_cast<const __m128i*>(column_data + chunk_start_row);
-      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+      const __m128i compare_result_vector = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+
+      alignas(16) std::array<uint32_t, 4> compare_result;
+      std::memcpy(compare_result.data(), &compare_result_vector, sizeof(compare_result));
 
       for (RowId row_offset = 0; row_offset < NUM_MATCHES_PER_VECTOR; ++row_offset) {
         output[num_matching_rows] = chunk_start_row + row_offset;
-        num_matching_rows += reinterpret_cast<const uint32_t*>(&compare_result)[row_offset] & 1;
+        num_matching_rows += compare_result[row_offset] & 1;
       }
     }
     return num_matching_rows;
