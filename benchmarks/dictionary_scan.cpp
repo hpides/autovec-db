@@ -122,9 +122,8 @@ struct vector_128_scan_shuffle {
   using ShuffleVec = simd::GccVec<ShuffleIndexT, 4 * sizeof(ShuffleIndexT)>::T;
 
   static_assert(NUM_MATCHES_PER_VECTOR == 4);
-
-  alignas(64) static constexpr std::array<std::array<ShuffleIndexT, 4>, 16> MATCHES_TO_SHUFFLE_MASK
-    = lookup_table_for_compressed_offsets_by_comparison_result<4, ShuffleIndexT, static_cast<ShuffleIndexT>(-1)>();
+  alignas(64) static constexpr std::array<std::array<ShuffleIndexT, 4>, 16> MATCHES_TO_SHUFFLE_MASK =
+      lookup_table_for_compressed_offsets_by_comparison_result<4, ShuffleIndexT, static_cast<ShuffleIndexT>(-1)>();
 
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     const DictEntry* __restrict rows = column.aligned_data();
@@ -149,6 +148,38 @@ struct vector_128_scan_shuffle {
       num_matching_rows += std::popcount(mask);
     }
 
+    return num_matching_rows;
+  }
+};
+
+struct vector_128_scan_add {
+  using VecT = simd::GccVec<DictEntry, 16>::T;
+  static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(VecT) / sizeof(DictEntry);
+
+  static_assert(NUM_MATCHES_PER_VECTOR == 4);
+  alignas(16) static constexpr std::array<std::array<uint32_t, 4>, 16> MATCHES_TO_ROW_OFFSETS =
+      lookup_table_for_compressed_offsets_by_comparison_result<4, uint32_t, 0>();
+
+  // TODO: Check out why this is slower than intel intrinsics. The movemask generation seems to be worse
+  // (essentially boiling down to worse compare-to-bitmask logic)
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict column_data = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    RowId num_matching_rows = 0;
+    static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
+
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      const VecT table_values = simd::load<VecT>(column_data + chunk_start_row);
+      const VecT compare_result = table_values < filter_val;
+      const unsigned int packed_compare_result = simd::comparison_to_bitmask<VecT, 4>(compare_result);
+
+      const VecT matching_row_offsets = simd::load<VecT>(MATCHES_TO_ROW_OFFSETS[packed_compare_result].data());
+      const VecT compressed_matching_rows = chunk_start_row + matching_row_offsets;
+
+      simd::store_unaligned(output + num_matching_rows, compressed_matching_rows);
+      num_matching_rows += std::popcount(packed_compare_result);
+    }
     return num_matching_rows;
   }
 };
@@ -422,6 +453,7 @@ struct x86_128_scan_shuffle {
   static constexpr uint8_t SDC = -1;  // SDC == SHUFFLE_DONT_CARE
   // TODO: Maybe use lookup_table_for_shuffle_mask_by_comparison_result? -- this is also duplicated in the NEON
   // implementation
+  static_assert(NUM_MATCHES_PER_VECTOR == 4);
   alignas(16) static constexpr std::array<std::array<uint8_t, 16>, 16> MATCHES_TO_SHUFFLE_MASK{
       // clang-format off
       std::array<uint8_t, 16>{SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
@@ -471,6 +503,7 @@ struct x86_128_scan_shuffle {
 struct x86_128_scan_add {
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
 
+  static_assert(NUM_MATCHES_PER_VECTOR == 4);
   alignas(16) static constexpr std::array<std::array<uint32_t, 4>, 16> MATCHES_TO_ROW_OFFSETS =
       lookup_table_for_compressed_offsets_by_comparison_result<4, uint32_t, 0>();
 
@@ -648,6 +681,7 @@ BENCHMARK(BM_dictionary_scan<autovec_scalar_scan>)->BM_ARGS;
 
 BENCHMARK(BM_dictionary_scan<vector_128_scan_shuffle>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_128_scan_predication>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<vector_128_scan_add>)->BM_ARGS;
 
 BENCHMARK(BM_dictionary_scan<vector_512_scan<vector_512_scan_strategy::SHUFFLE_MASK_16_BIT>>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_512_scan<vector_512_scan_strategy::SHUFFLE_MASK_8_BIT>>)->BM_ARGS;
