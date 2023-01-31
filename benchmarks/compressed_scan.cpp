@@ -389,8 +389,8 @@ struct neon_scan {
   static constexpr uint32x4_t BYTE_ALIGN_MASK = {3, 2, 1, 0};
   static constexpr uint8x16_t AND_MASK = {255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0};
 
-  template <size_t ITER, typename CallbackFn>
-  inline void decompress_iteration(uint8x16_t batch_lane, CallbackFn callback, const uint8_t dangling_bits) {
+  template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
+  inline void decompress_iteration(uint8x16_t batch_lane, CallbackFn callback) {
     auto shuffle_input = [&] {
       static_assert(ITER < 3, "Cannot do more than 3 iterations per lane.");
       // clang-format off
@@ -408,18 +408,15 @@ struct neon_scan {
     uint8x16_t lane = shuffle_input();
     TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
 
-    lane = vshlq_s32(vreinterpretq_s32_u8(lane), BYTE_ALIGN_MASK);
+    lane = vshlq_u32(vreinterpretq_s32_u8(lane), BYTE_ALIGN_MASK);
     TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
 
     // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
     // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
     // need to shift by 4 * `iter` to include this shift.
-    const int32_t shift = 3 + (ITER * 4) + dangling_bits;
+    constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
 
-    // NEON does not support right-shifting with runtime values. So we shift left by a negative value.
-    int32x4_t shift_lane = vmovq_n_s32(-shift);
-
-    lane = vshlq_s32(vreinterpretq_s32_u8(lane), shift_lane);
+    lane = vshrq_n_s32(vreinterpretq_u32_u8(lane), shift);
     TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
 
     lane = vandq_u8(lane, AND_MASK);
@@ -434,16 +431,23 @@ struct neon_scan {
 
     const auto* compressed_data = static_cast<const uint8_t*>(input_compressed);
 
-    for (size_t batch = 0; batch < num_batches; ++batch) {
-      // In odd runs, we may have dangling bits at beginning of batch.
-      const uint8_t dangling_bits = DANGLING_BITS_PER_BATCH * (batch % 2);
-      const size_t offset = (batch * BITS_PER_BATCH) / 8;
-      const uint8_t* pos = compressed_data + offset;
-
-      uint8x16_t batch_lane = vld1q_u8(pos);
-      decompress_iteration<0>(batch_lane, callback, dangling_bits);
-      decompress_iteration<1>(batch_lane, callback, dangling_bits);
-      decompress_iteration<2>(batch_lane, callback, dangling_bits);
+    assert(num_batches % 2 == 0);
+    for (size_t batch = 0; batch < num_batches; batch += 2) {
+      {
+        const size_t offset = ((batch + 0) * BITS_PER_BATCH) / 8;
+        uint8x16_t batch_lane = vld1q_u8(compressed_data + offset);
+        decompress_iteration<0, 0>(batch_lane, callback);
+        decompress_iteration<1, 0>(batch_lane, callback);
+        decompress_iteration<2, 0>(batch_lane, callback);
+      }
+      {
+        const size_t offset = ((batch + 1) * BITS_PER_BATCH) / 8;
+        uint8x16_t batch_lane = vld1q_u8(compressed_data + offset);
+        // In odd runs, we may have dangling bits at beginning of batch.
+        decompress_iteration<0, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
+        decompress_iteration<1, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
+        decompress_iteration<2, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
+      }
     }
   }
 
@@ -535,7 +539,7 @@ struct x86_128_scan {
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     auto store_fn = [&](__m128i decompressed_values) {
-      _mm_stream_si128(reinterpret_cast<__m128i*>(output), decompressed_values);
+      _mm_store_si128(reinterpret_cast<__m128i*>(output), decompressed_values);
       output += VALUES_PER_ITERATION;
     };
 
