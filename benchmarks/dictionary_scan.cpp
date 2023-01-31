@@ -342,8 +342,6 @@ struct x86_128_scan_manual_inner_loop {
       const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
       unsigned int matches_bits = _mm_movemask_ps(reinterpret_cast<__m128>(compare_result));
 
-      // TODO: Take a look at this in vtune -- on skylake, the assembler doesn't look too bad, but we're 4x slower
-      // than predication below
       while (matches_bits != 0) {
         const int matching_element = std::countr_zero(matches_bits);
         output[num_matching_rows++] = row + matching_element;
@@ -394,13 +392,13 @@ struct x86_128_scan_pext {
       const __m128i row_indices = _mm_add_epi32(_mm_set1_epi32(chunk_start_row), _mm_set_epi32(3, 2, 1, 0));
 
       const uint64_t lower_mask = _mm_extract_epi64(compare_result, 0);
-      const uint64_t* lower_indices = reinterpret_cast<const uint64_t*>(&row_indices);
-      const uint64_t lower_compressed_indices = _pext_u64(*lower_indices, lower_mask);
+      const uint64_t lower_indices = _mm_extract_epi64(row_indices, 0);
+      const uint64_t lower_compressed_indices = _pext_u64(lower_indices, lower_mask);
       const uint64_t lower_match_bits = _mm_popcnt_u64(lower_mask);
 
       const uint64_t upper_mask = _mm_extract_epi64(compare_result, 1);
-      const uint64_t* upper_indices = reinterpret_cast<const uint64_t*>(&row_indices) + 1;
-      const uint64_t upper_compressed_indices = _pext_u64(*upper_indices, upper_mask);
+      const uint64_t upper_indices = _mm_extract_epi64(row_indices, 1);
+      const uint64_t upper_compressed_indices = _pext_u64(upper_indices, upper_mask);
       const uint64_t upper_match_bits = _mm_popcnt_u64(upper_mask);
 
       std::memcpy(output + num_matching_rows, &lower_compressed_indices, sizeof(lower_compressed_indices));
