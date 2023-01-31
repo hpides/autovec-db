@@ -67,8 +67,8 @@ struct vector_128_scan_predication {
 
     static_assert(NUM_ROWS % (NUM_MATCHES_PER_VECTOR) == 0);
     for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
-      auto rows_to_match = simd::load<DictVec>(rows + i);
-      DictVec matches = rows_to_match < filter_vec;
+      const auto rows_to_match = simd::load<DictVec>(rows + i);
+      const DictVec matches = rows_to_match < filter_vec;
 
       for (RowId row = 0; row < NUM_MATCHES_PER_VECTOR; ++row) {
         output[num_matching_rows] = i + row;
@@ -117,17 +117,17 @@ struct vector_128_scan_shuffle {
     RowId num_matching_rows = 0;
     static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
     for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
-      auto rows_to_match = simd::load<DictVec>(rows + i);
-      DictVec matches = rows_to_match < filter_vec;
+      const auto rows_to_match = simd::load<DictVec>(rows + i);
+      const DictVec matches = rows_to_match < filter_vec;
 
       static_assert(NUM_MATCHES_PER_VECTOR == 4);
       constexpr RowVec row_offsets{0, 1, 2, 3};
-      RowVec row_ids = simd::broadcast<RowVec>(i) + row_offsets;
-      uint8_t mask = simd::comparison_to_bitmask<DictVec, 4>(matches);
+      const RowVec row_ids = simd::broadcast<RowVec>(i) + row_offsets;
+      const uint8_t mask = simd::comparison_to_bitmask<DictVec, 4>(matches);
       assert(mask < 16 && "Mask cannot have more than 4 bits set.");
 
-      ShuffleVec shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
-      RowVec compressed_rows = simd::shuffle_vector(row_ids, shuffle_mask);
+      const ShuffleVec shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
+      const RowVec compressed_rows = simd::shuffle_vector(row_ids, shuffle_mask);
       simd::store_unaligned(output + num_matching_rows, compressed_rows);
       num_matching_rows += std::popcount(mask);
     }
@@ -188,9 +188,9 @@ struct vector_512_scan {
   alignas(64) static constexpr auto MATCHES_TO_SHUFFLE_MASK_8_BIT =
       lookup_table_for_shuffle_mask_by_comparison_result<1, ShuffleVecElementT>();
   ShuffleMask16Elements get_shuffle_mask_from_8bit(uint16_t mask) {
-    uint8_t lo_mask = mask;
-    uint8_t hi_mask = mask >> 8;
-    size_t num_lo_matches = std::popcount(lo_mask);
+    const uint8_t lo_mask = mask;
+    const uint8_t hi_mask = mask >> 8;
+    const size_t num_lo_matches = std::popcount(lo_mask);
 
     const auto& lo_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[lo_mask];
     const auto& hi_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[hi_mask];
@@ -215,8 +215,8 @@ struct vector_512_scan {
     size_t first_empty_slot = 0;
 
     for (uint8_t i = 0; i < 16; i += 4) {
-      uint8_t current_mask = (mask >> i) & 0xF;
-      ShuffleVec4 current_shuffle_mask = VecScan::MATCHES_TO_SHUFFLE_MASK[current_mask] + i;
+      const uint8_t current_mask = (mask >> i) & 0xF;
+      const ShuffleVec4 current_shuffle_mask = VecScan::MATCHES_TO_SHUFFLE_MASK[current_mask] + i;
       std::memcpy(combined_mask.data() + first_empty_slot, &current_shuffle_mask, sizeof(current_shuffle_mask));
       first_empty_slot += std::popcount(current_mask);
     }
@@ -234,12 +234,12 @@ struct vector_512_scan {
     for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
       static_assert(NUM_MATCHES_PER_VECTOR == 16);
       constexpr RowVec row_offsets{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-      RowVec row_ids = simd::broadcast<RowVec>(i) + row_offsets;
+      const RowVec row_ids = simd::broadcast<RowVec>(i) + row_offsets;
 
-      auto rows_to_match = simd::load<DictVec>(rows + i);
-      DictVec matches = rows_to_match < filter_vec;
+      const auto rows_to_match = simd::load<DictVec>(rows + i);
+      const DictVec matches = rows_to_match < filter_vec;
 
-      uint16_t mask = simd::comparison_to_bitmask(matches);
+      const uint16_t mask = simd::comparison_to_bitmask(matches);
 
       static_assert(NUM_MATCHES_PER_VECTOR == 16);
       ShuffleMask16Elements shuffle_mask;
@@ -252,7 +252,7 @@ struct vector_512_scan {
         shuffle_mask = get_shuffle_mask_from_4bit(mask);
       }
 
-      RowVec compressed_rows = simd::shuffle_vector(row_ids, shuffle_mask);
+      const RowVec compressed_rows = simd::shuffle_vector(row_ids, shuffle_mask);
       simd::store_unaligned(output + num_matching_rows, compressed_rows);
       num_matching_rows += std::popcount(mask);
     }
@@ -304,18 +304,18 @@ struct neon_scan {
     for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
       static_assert(NUM_MATCHES_PER_VECTOR == 4);
       constexpr RowVec row_offsets = {0, 1, 2, 3};
-      RowVec row_ids = vmovq_n_u32(start_row) + row_offsets;
+      const RowVec row_ids = vmovq_n_u32(start_row) + row_offsets;
 
-      DictVec rows_to_match = vld1q_u32(rows + start_row);
-      DictVec matches = vcltq_u32(rows_to_match, filter_vec);
+      const DictVec rows_to_match = vld1q_u32(rows + start_row);
+      const DictVec matches = vcltq_u32(rows_to_match, filter_vec);
 
       // TODO: if constexpr shuffle strategy
 
       constexpr DictVec bit_mask = {1, 2, 4, 8};
-      uint8_t mask = vaddvq_u32(vandq_u32(matches, bit_mask));
+      const uint8_t mask = vaddvq_u32(vandq_u32(matches, bit_mask));
       assert(mask >> 4 == 0 && "High 4 bits must be 0");
 
-      TableVec shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
+      const TableVec shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
       // TODO: check if we can do this differently with: vqtbx1q_u8
       RowVec compressed_rows = vqtbl1q_u8(row_ids, shuffle_mask);
       vst1q_u32(output + num_matching_rows, compressed_rows);
@@ -488,8 +488,8 @@ struct x86_512_scan {
       // to the gcc-vec versions.
       const __m512i row_ids = _mm512_set1_epi32(i) + row_id_offsets;
 
-      __m512i rows_to_match = _mm512_load_epi32(rows + i);
-      __mmask16 matches = _mm512_cmplt_epi32_mask(rows_to_match, filter_vec);
+      const __m512i rows_to_match = _mm512_load_epi32(rows + i);
+      const __mmask16 matches = _mm512_cmplt_epi32_mask(rows_to_match, filter_vec);
 
       // TODO is there any reason why we would use compress plus store over compressstore?
       if constexpr (STRATEGY == x86_512_scan_strategy::COMPRESSSTORE) {
