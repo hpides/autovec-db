@@ -1,14 +1,3 @@
-### To build the image:
-# docker build -t hpides/autovec-db .
-# docker login
-# docker push hpides/autovec-db
-
-### To use the image:
-# git clone [...]autovec-db.git
-# enroot import docker://hpides/autovec-db
-# enroot create hpides+autovec-db.sqsh
-# enroot start -m ./autovec-db/:/autovec-db --rw hpides+autovec-db
-
 BUILD_DIR=./build-clang-release
 BENCH_ARGS="--benchmark_format=csv --benchmark_repetitions=10 --benchmark_report_aggregates_only=true"
 
