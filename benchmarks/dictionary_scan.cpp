@@ -20,6 +20,29 @@ static constexpr size_t SCALE_FACTOR = 1024 * 64;
 static constexpr size_t NUM_ROWS = NUM_BASE_ROWS * SCALE_FACTOR;
 static constexpr size_t NUM_UNIQUE_VALUES = 16;
 
+/*
+ * Builds a lookup table that, given a comparison-result bitmask, returns the indices of the matching elements
+ * compressed to the front. Can be used as a shuffle mask for source-selecing shuffles. Examples: [0 0 0 1] -> [0,
+ * unused_index, unused_index, unused_index] [1 0 1 0] -> [1, 3, unused_index, unused_index]
+ */
+template <size_t ComparisonResultBits, typename IndexT, IndexT unused_index>
+static constexpr auto lookup_table_for_compressed_offsets_by_comparison_result() {
+  std::array<std::array<IndexT, ComparisonResultBits>, 1 << ComparisonResultBits> lookup_table;
+
+  for (size_t index = 0; index < lookup_table.size(); ++index) {
+    auto& shuffle_mask = lookup_table[index];
+    std::fill(shuffle_mask.begin(), shuffle_mask.end(), unused_index);
+
+    size_t first_empty_output_slot = 0;
+    for (size_t comparison_result_rest = index; comparison_result_rest != 0;
+         comparison_result_rest &= comparison_result_rest - 1) {
+      shuffle_mask[first_empty_output_slot++] = std::countr_zero(comparison_result_rest);
+    }
+  }
+
+  return lookup_table;
+}
+
 struct naive_scalar_scan {
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     const DictEntry* column_data = column.aligned_data();
@@ -99,6 +122,8 @@ struct vector_128_scan_shuffle {
 #endif
 
   static_assert(NUM_MATCHES_PER_VECTOR == 4);
+
+  // TODO: Use lookup_table_for_shuffle_mask_by_comparison_result
   alignas(64) static constexpr std::array MATCHES_TO_SHUFFLE_MASK = {
       ShuffleVec{/*0000*/ SDC, SDC, SDC, SDC}, ShuffleVec{/*0001*/ 0, SDC, SDC, SDC},
       ShuffleVec{/*0010*/ 1, SDC, SDC, SDC},   ShuffleVec{/*0011*/ 0, 1, SDC, SDC},
@@ -158,35 +183,17 @@ struct vector_512_scan {
   using ShuffleMask16Elements = simd::GccVec<ShuffleVecElementT, 16 * sizeof(ShuffleVecElementT)>::T;
   static constexpr ShuffleVecElementT SDC = -1;  // SDC == SHUFFLE_DONT_CARE
 
-  template <size_t ComparisonResultBytes, typename ShuffleIndexT>
-  static constexpr auto lookup_table_for_shuffle_mask_by_comparison_result() {
-    std::array<std::array<ShuffleIndexT, ComparisonResultBytes * 8>, 1 << (ComparisonResultBytes * 8)> lookup_table;
-
-    for (size_t index = 0; index < lookup_table.size(); ++index) {
-      auto& shuffle_mask = lookup_table[index];
-      std::fill(shuffle_mask.begin(), shuffle_mask.end(), SDC);
-
-      size_t first_empty_output_slot = 0;
-      for (size_t comparison_result_rest = index; comparison_result_rest != 0;
-           comparison_result_rest &= comparison_result_rest - 1) {
-        shuffle_mask[first_empty_output_slot++] = std::countr_zero(comparison_result_rest);
-      }
-    }
-
-    return lookup_table;
-  }
-
   ShuffleMask16Elements get_shuffle_mask_from_16bit(uint16_t mask) {
     // TODO: currently not constexpr because we hit compiler constant evaluation limits
     // Check if increasing the limits and making it constexpr gives any benefit.
     alignas(64) static auto MATCHES_TO_SHUFFLE_MASK_16_BIT =
-        lookup_table_for_shuffle_mask_by_comparison_result<2, ShuffleVecElementT>();
+        lookup_table_for_compressed_offsets_by_comparison_result<16, ShuffleVecElementT, SDC>();
 
     return simd::load<ShuffleMask16Elements>(MATCHES_TO_SHUFFLE_MASK_16_BIT[mask].data());
   }
 
   alignas(64) static constexpr auto MATCHES_TO_SHUFFLE_MASK_8_BIT =
-      lookup_table_for_shuffle_mask_by_comparison_result<1, ShuffleVecElementT>();
+      lookup_table_for_compressed_offsets_by_comparison_result<8, ShuffleVecElementT, SDC>();
   ShuffleMask16Elements get_shuffle_mask_from_8bit(uint16_t mask) {
     const uint8_t lo_mask = mask;
     const uint8_t hi_mask = mask >> 8;
@@ -419,7 +426,8 @@ struct x86_128_scan_shuffle {
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
 
   static constexpr uint8_t SDC = -1;  // SDC == SHUFFLE_DONT_CARE
-  alignas(16) static constexpr std::array<std::array<uint8_t, 16>, 16> MATCHES_TO_SHUFFLE_MASK = {
+  // TODO: Maybe use lookup_table_for_shuffle_mask_by_comparison_result?
+  alignas(16) static constexpr std::array<std::array<uint8_t, 16>, 16> MATCHES_TO_SHUFFLE_MASK{
       // clang-format off
       std::array<uint8_t, 16>{SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
       std::array<uint8_t, 16>{  0,   1,   2,   3,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC,   SDC, SDC, SDC, SDC},
@@ -437,7 +445,7 @@ struct x86_128_scan_shuffle {
       std::array<uint8_t, 16>{  0,   1,   2,   3,     8,   9,  10,  11,    12,  13,  14,  15,   SDC, SDC, SDC, SDC},
       std::array<uint8_t, 16>{  4,   5,   6,   7,     8,   9,  10,  11,    12,  13,  14,  15,   SDC, SDC, SDC, SDC},
       std::array<uint8_t, 16>{  0,   1,   2,   3,     4,   5,   6,   7,     8,   9,  10,  11,    12,  13,  14,  15},
-      //clang-format on
+      // clang-format on
   };
 
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
@@ -453,10 +461,82 @@ struct x86_128_scan_shuffle {
       const unsigned int packed_compare_result = _mm_movemask_ps(reinterpret_cast<const __m128&>(compare_result));
 
       const __m128i row_indices = _mm_add_epi32(_mm_set1_epi32(chunk_start_row), _mm_set_epi32(3, 2, 1, 0));
-      const __m128i* shuffle_mask = reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result);
+      const __m128i* shuffle_mask =
+          reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result);
       const __m128i compressed_indices = _mm_shuffle_epi8(row_indices, *shuffle_mask);
 
       _mm_storeu_si128(reinterpret_cast<__m128i_u*>(output + num_matching_rows), compressed_indices);
+
+      num_matching_rows += _mm_popcnt_u32(packed_compare_result);
+    }
+    return num_matching_rows;
+  }
+};
+
+struct x86_128_scan_add {
+  static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
+
+  alignas(16) static constexpr std::array<std::array<uint32_t, 4>, 16> MATCHES_TO_ROW_OFFSETS =
+      lookup_table_for_compressed_offsets_by_comparison_result<4, uint32_t, 0>();
+
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict column_data = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    RowId num_matching_rows = 0;
+    static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
+
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      const auto* table_values = reinterpret_cast<const __m128i*>(column_data + chunk_start_row);
+      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+      const unsigned int packed_compare_result = _mm_movemask_ps(reinterpret_cast<const __m128&>(compare_result));
+
+      const __m128i* matching_row_offsets =
+          reinterpret_cast<const __m128i*>(MATCHES_TO_ROW_OFFSETS.data() + packed_compare_result);
+      const __m128i compressed_matching_rows = _mm_set1_epi32(chunk_start_row) + *matching_row_offsets;
+
+      _mm_storeu_si128(reinterpret_cast<__m128i_u*>(output + num_matching_rows), compressed_matching_rows);
+
+      num_matching_rows += _mm_popcnt_u32(packed_compare_result);
+    }
+    return num_matching_rows;
+  }
+};
+
+struct x86_256_avx2_scan_shuffle {
+  static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m256i) / sizeof(DictEntry);
+
+  // Because AVX2 can only shuffle within each of the two 128bit-lanes, we can reuse the old shuffle indices
+  alignas(16) static constexpr std::array<std::array<uint8_t, 16>, 16> MATCHES_TO_SHUFFLE_MASK =
+      x86_128_scan_shuffle::MATCHES_TO_SHUFFLE_MASK;
+
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict column_data = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    RowId num_matching_rows = 0;
+    static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
+
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      const auto* table_values = reinterpret_cast<const __m256i*>(column_data + chunk_start_row);
+      const __m256i compare_result = _mm256_cmpgt_epi32(_mm256_set1_epi32(filter_val), *table_values);
+      const __m256i row_indices =
+          _mm256_add_epi32(_mm256_set1_epi32(chunk_start_row), _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0));
+
+      const unsigned int packed_compare_result = _mm256_movemask_ps(reinterpret_cast<const __m256&>(compare_result));
+      const unsigned int packed_compare_result_low = packed_compare_result & 0xF;
+      const unsigned int packed_compare_result_high = (packed_compare_result >> 4) & 0xF;
+
+      const __m128i* shuffle_mask_low =
+          reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result_low);
+      const __m128i* shuffle_mask_high =
+          reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result_high);
+      const __m256i shuffle_mask = _mm256_set_m128i(*shuffle_mask_high, *shuffle_mask_low);
+
+      // TODO: Moving / Overlap across lane boundaries. Storing to memory.
+      const __m256i compressed_indices = _mm256_shuffle_epi8(row_indices, shuffle_mask);
+      (void)compressed_indices;
+      (void)output;
 
       num_matching_rows += _mm_popcnt_u32(packed_compare_result);
     }
@@ -589,6 +669,9 @@ BENCHMARK(BM_dictionary_scan<x86_128_scan_manual_inner_loop>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_128_scan_predication>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_128_scan_pext>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_128_scan_shuffle>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_128_scan_add>)->BM_ARGS;
+
+BENCHMARK(BM_dictionary_scan<x86_256_avx2_scan_shuffle>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
