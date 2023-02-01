@@ -560,15 +560,18 @@ struct x86_256_avx2_scan_shuffle {
       const unsigned int packed_compare_result_high = (packed_compare_result >> 4u) & 0b1111u;
 
       const auto* shuffle_mask_low =
-          reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result_low);
+          reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK[packed_compare_result_low].data());
       const auto* shuffle_mask_high =
-          reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result_high);
+          reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK[packed_compare_result_high].data());
       const __m256i shuffle_mask = _mm256_set_m128i(*shuffle_mask_high, *shuffle_mask_low);
 
-      // TODO: Moving / Overlap across lane boundaries. Storing to memory.
       const __m256i compressed_indices = _mm256_shuffle_epi8(row_indices, shuffle_mask);
-      (void)compressed_indices;
-      (void)output;
+
+      const int match_count_low = _mm_popcnt_u32(packed_compare_result_low);
+      RowId* chunk_output = (output + num_matching_rows);
+      auto* low_chunk_output = reinterpret_cast<__m128i*>(chunk_output);
+      auto* high_chunk_output = reinterpret_cast<__m128i*>(chunk_output + match_count_low);
+      _mm256_storeu2_m128i(high_chunk_output, low_chunk_output, compressed_indices);
 
       num_matching_rows += _mm_popcnt_u32(packed_compare_result);
     }
@@ -703,7 +706,7 @@ BENCHMARK(BM_dictionary_scan<x86_128_scan_pext>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_128_scan_shuffle>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_128_scan_add>)->BM_ARGS;
 
-// BENCHMARK(BM_dictionary_scan<x86_256_avx2_scan_shuffle>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_256_avx2_scan_shuffle>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
