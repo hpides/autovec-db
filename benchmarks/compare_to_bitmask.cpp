@@ -7,6 +7,13 @@
 #include "benchmark/benchmark.h"
 #include "common.hpp"
 
+// TODO: We commonly use DefaultMaskT, which uses small unsigned types (uint8 / uint16), and then build up a result
+// on that type (e.g. by OR-ing together subresults). In theory, overflows must cause modulo-results, so this
+// might cause worse code generation than just using uint64_t. We can't use int64_t, as overflow due to signed
+// operations is UB here.
+// With x86_128, I've seen slighly better code generation by clang if the intermediate result is uint64_t
+// (using LEA [reg1 + N * reg2] instead of shift+or)
+
 template <typename SubresultFunc, typename InputT>
 auto create_bitmask_using_subresults(const InputT& input1, const InputT& input2) {
   SubresultFunc subresult_func;
@@ -19,20 +26,20 @@ auto create_bitmask_using_subresults(const InputT& input1, const InputT& input2)
     return subresult_func(*input1_vec, *input2_vec);
   } else {
     static_assert(sizeof(InputT) % VECTOR_BYTES == 0);
-    constexpr size_t iterations = sizeof(InputT) / VECTOR_BYTES;
+    constexpr size_t ITERATIONS = sizeof(InputT) / VECTOR_BYTES;
 
     using MaskT = decltype(subresult_func(input1_vec[0], input2_vec[0]));
     constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(typename InputT::DataT);
 
     MaskT result = 0;
-    for (size_t i = 0; i < iterations; ++i) {
-      MaskT sub_mask = subresult_func(input1_vec[i], input2_vec[i]);
+    for (size_t i = 0; i < ITERATIONS; ++i) {
+      const MaskT sub_mask = subresult_func(input1_vec[i], input2_vec[i]);
 
       // sub mask can only have its NUM_VECTOR_ELEMENTS least significant bits set.
       assert(static_cast<unsigned int>(std::countl_zero(sub_mask)) >= 8 * sizeof(MaskT) - NUM_VECTOR_ELEMENTS);
 
       const size_t offset = i * NUM_VECTOR_ELEMENTS;
-      result |= sub_mask << offset;
+      result |= static_cast<MaskT>(sub_mask << offset);
     }
     return result;
   }
@@ -54,13 +61,13 @@ struct naive_scalar_bitmask {
     const auto* __restrict input1_typed = input1.data();
     const auto* __restrict input2_typed = input2.data();
 
-    constexpr size_t iterations = sizeof(InputT) / sizeof(typename InputT::DataT);
+    constexpr size_t ITERATIONS = sizeof(InputT) / sizeof(typename InputT::DataT);
 
     MaskT result = 0;
 #if CLANG_COMPILER
 #pragma clang loop vectorize(disable)
 #endif
-    for (size_t i = 0; i < iterations; ++i) {
+    for (size_t i = 0; i < ITERATIONS; ++i) {
       if (input1_typed[i] == input2_typed[i]) {
         result |= 1ull << i;
       }
@@ -81,10 +88,10 @@ struct autovec_scalar_bitmask {
     const auto* __restrict input1_typed = input1.data();
     const auto* __restrict input2_typed = input2.data();
 
-    constexpr size_t iterations = sizeof(InputT) / sizeof(typename InputT::DataT);
+    constexpr size_t ITERATIONS = sizeof(InputT) / sizeof(typename InputT::DataT);
 
     MaskT result = 0;
-    for (size_t i = 0; i < iterations; ++i) {
+    for (size_t i = 0; i < ITERATIONS; ++i) {
       if (input1_typed[i] == input2_typed[i]) {
         result |= 1ull << i;
       }
@@ -103,10 +110,10 @@ struct bitset_bitmask {
     const auto* __restrict input1_typed = input1.data();
     const auto* __restrict input2_typed = input2.data();
 
-    constexpr size_t iterations = sizeof(InputT) / sizeof(ElementT);
+    constexpr size_t ITERATIONS = sizeof(InputT) / sizeof(ElementT);
 
     std::bitset<sizeof(MaskT) * 8> result;
-    for (size_t i = 0; i < iterations; ++i) {
+    for (size_t i = 0; i < ITERATIONS; ++i) {
       result[i] = input1_typed[i] == input2_typed[i];
     }
     return result.to_ullong();
@@ -141,11 +148,11 @@ struct clang_vector_bitmask {
       // This does not occur if avx512 is available, which can compare and store the result in a mask register in one
       // instruction, see https://godbolt.org/z/efe8d61Gz.
       // This could be considered a performance bug in clang
-      MaskVecT subresult_vec = __builtin_convertvector(subinput1 == subinput2, MaskVecT);
-      MaskT subresult = reinterpret_cast<SingleComparisonResultT&>(subresult_vec);
+      const MaskVecT subresult_vec = __builtin_convertvector(subinput1 == subinput2, MaskVecT);
+      const MaskT subresult = reinterpret_cast<const SingleComparisonResultT&>(subresult_vec);
 
       if constexpr (NUM_VECTOR_ELEMENTS != 8 * sizeof(SingleComparisonResultT)) {
-        subresult &= (1 << NUM_VECTOR_ELEMENTS) - 1;
+        return subresult & ((1ull << NUM_VECTOR_ELEMENTS) - 1);
       }
 
       return subresult;
@@ -211,10 +218,10 @@ template <typename VecT, std::unsigned_integral ElementT>
 VecT positional_single_bit_mask() {
   VecT result{};
 
-  size_t vector_elements = sizeof(VecT) / sizeof(ElementT);
+  constexpr size_t VECTOR_ELEMENTS = sizeof(VecT) / sizeof(ElementT);
 
   ElementT current_value = 1;
-  for (size_t i = 0; i < vector_elements; ++i) {
+  for (size_t i = 0; i < VECTOR_ELEMENTS; ++i) {
     result[i] = current_value;
     if (current_value <= std::numeric_limits<ElementT>::max() / 2) {
       current_value *= 2;
@@ -243,7 +250,7 @@ struct gcc_vector_custom_bitmask {
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
       // We'd want this to be constexpr, but we can't:
       // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101651
-      VecT element_masks = positional_single_bit_mask<VecT, ElementT>();
+      const VecT element_masks = positional_single_bit_mask<VecT, ElementT>();
 
       auto subresult_bool_vec = subinput1 == subinput2;
       auto single_bits_set = subresult_bool_vec & element_masks;
@@ -258,8 +265,9 @@ struct gcc_vector_custom_bitmask {
            start_element += ELEMENTS_COMBINED_PER_ITERATION) {
         auto sub_bits_begin = single_bit_array.begin() + start_element;
         auto sub_bits_end = std::min(sub_bits_begin + ELEMENTS_COMBINED_PER_ITERATION, single_bit_array.end());
-        MaskT sub_accumulation_result = std::accumulate(sub_bits_begin, sub_bits_end, MaskT{0});
-        result |= sub_accumulation_result << start_element;
+        // NOLINTNEXTLINE(bugprone-fold-init-type): A bigger fold type decreases performance here
+        const MaskT sub_accumulation_result = std::accumulate(sub_bits_begin, sub_bits_end, MaskT{0});
+        result |= static_cast<MaskT>(sub_accumulation_result << start_element);
       }
       return result;
     }
@@ -334,7 +342,7 @@ struct x86_128_bitmask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
-      VecT vector_compare_result = [&]() {
+      const VecT vector_compare_result = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
           return _mm_cmpeq_epi8(subinput1, subinput2);
         } else if constexpr (sizeof(ElementT) == 2) {
@@ -346,7 +354,7 @@ struct x86_128_bitmask {
         }
       }();
 
-      MaskT subresult = [&]() {
+      const MaskT subresult = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
           return _mm_movemask_epi8(vector_compare_result);
         } else if constexpr (sizeof(ElementT) == 2) {
@@ -354,8 +362,9 @@ struct x86_128_bitmask {
 
           // The comparison result is two bytes, either 0xffff or 0x0000. We just need one byte out of that.
           // Move all lower halves of the 2B elements to the bytes (0, 8), clears upper bytes.
-          __m128i lower_byte_shuffle_mask = _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0);
-          __m128i lower_bytes_shuffled = _mm_shuffle_epi8(vector_compare_result, lower_byte_shuffle_mask);
+          const __m128i lower_byte_shuffle_mask =
+              _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0);
+          const __m128i lower_bytes_shuffled = _mm_shuffle_epi8(vector_compare_result, lower_byte_shuffle_mask);
           return _mm_movemask_epi8(lower_bytes_shuffled);
         } else if constexpr (sizeof(ElementT) == 4) {
           return _mm_movemask_ps(reinterpret_cast<__m128>(vector_compare_result));
@@ -392,7 +401,7 @@ struct x86_256_avx2_bitmask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
-      VecT vector_compare_result = [&]() {
+      const VecT vector_compare_result = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
           return _mm256_cmpeq_epi8(subinput1, subinput2);
         } else if constexpr (sizeof(ElementT) == 2) {
@@ -404,16 +413,16 @@ struct x86_256_avx2_bitmask {
         }
       }();
 
-      MaskT subresult = [&]() {
+      const MaskT subresult = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
           // cast to unsigned is necessary because otherwise the widening will be sign-expanding, filling in 1-bits
           return static_cast<uint32_t>(_mm256_movemask_epi8(vector_compare_result));
         } else if constexpr (sizeof(ElementT) == 2) {
 #if 1
           // This is what clang generates for the vector<256> variant, it's ~12% faster than the version below
-          __m128i lower_half = _mm256_extracti128_si256(vector_compare_result, 0);
-          __m128i upper_half = _mm256_extracti128_si256(vector_compare_result, 1);
-          __m128i comparison_packed_to_bytes = _mm_packs_epi16(lower_half, upper_half);
+          const __m128i lower_half = _mm256_extracti128_si256(vector_compare_result, 0);
+          const __m128i upper_half = _mm256_extracti128_si256(vector_compare_result, 1);
+          const __m128i comparison_packed_to_bytes = _mm_packs_epi16(lower_half, upper_half);
           return _mm_movemask_epi8(comparison_packed_to_bytes);
 #else
           // avx2 shuffle is super weird: You can only shuffle within a lane, indices are within the current lane.
@@ -479,12 +488,12 @@ void BM_compare_to_bitmask(benchmark::State& state) {
   InputT input2;
 
   std::mt19937_64 rng{std::random_device{}()};
-  for (auto& value : input1.arr) {
+  for (auto& value : input1) {
     value = rng();
   }
 
   input2 = input1;
-  for (auto& value : input2.arr) {
+  for (auto& value : input2) {
     if (rng() % 2 == 0) {
       value = rng();
     }
@@ -523,6 +532,7 @@ using Input_16B_as_2x8B = AlignedArray<uint64_t, 2, 16>;
 
 #define BM_ARGS Unit(benchmark::kNanosecond)
 
+// NOLINTBEGIN(bugprone-macro-parentheses): `bm` is a template here, we can't put it in parentheses
 #define BENCHMARK_WITH_64B_INPUT(bm)                                 \
   BENCHMARK(BM_compare_to_bitmask<bm<Input_64B_as_64x1B>>)->BM_ARGS; \
   BENCHMARK(BM_compare_to_bitmask<bm<Input_64B_as_32x2B>>)->BM_ARGS; \
@@ -534,6 +544,7 @@ using Input_16B_as_2x8B = AlignedArray<uint64_t, 2, 16>;
   BENCHMARK(BM_compare_to_bitmask<bm<Input_16B_as_8x2B>>)->BM_ARGS;  \
   BENCHMARK(BM_compare_to_bitmask<bm<Input_16B_as_4x4B>>)->BM_ARGS;  \
   BENCHMARK(BM_compare_to_bitmask<bm<Input_16B_as_2x8B>>)->BM_ARGS
+// NOLINTEND(bugprone-macro-parentheses)
 
 /////////////////////////
 ///   16 Byte Input   ///

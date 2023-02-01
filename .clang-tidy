@@ -1,0 +1,228 @@
+WarningsAsErrors: '*'
+
+Checks: >
+  *,
+  -abseil-*,
+  -altera-*,
+  -android-*,
+  -boost-*,
+  -darwin-*,
+  -fuchsia-*,
+  -google-objc-*,
+  -linuxkernel-*,
+  -llvm-*,
+  -llvmlibc-*,
+  -mpi-*,
+  -objc-*,
+  -openmp-*,
+  -zircon-*,
+
+  -hicpp-*,
+  hicpp-exception-baseclass,
+  hicpp-multiway-paths-covered,
+  hicpp-no-assembler,
+  hicpp-signed-bitwise,
+  -cert-*,
+  cert-dcl21-cpp,
+  cert-dcl50-cpp,
+  cert-dcl58-cpp,
+  cert-env33-c,
+  cert-err33-c,
+  cert-err34-c,
+  cert-err52-cpp,
+  cert-err58-cpp,
+  cert-err60-cpp,
+  cert-flp30-c,
+  cert-mem57-cpp,
+  cert-msc50-cpp,
+  cert-msc51-cpp,
+  cert-oop57-cpp,
+  cert-oop58-cpp,
+  -bugprone-narrowing-conversions,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-c-copy-assignment-signature,
+  -cppcoreguidelines-explicit-virtual-functions,
+  -cppcoreguidelines-macro-to-enum,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+
+  -bugprone-easily-swappable-parameters,
+  -cert-err58-cpp,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-macro-usage,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -google-readability-todo,
+  -modernize-use-trailing-return-type,
+  -portability-simd-intrinsics,
+  -readability-magic-numbers,
+  -readability-uppercase-literal-suffix,
+
+  -misc-confusable-identifiers,
+
+### Reasons for exclusions
+## Generally not applicable
+# abseil                                                we don't use the abseil library
+# altera                                                doesn't apply (OpenCL FPGA programming)
+# android                                               doesn't apply (Android)
+# boost                                                 doesn't apply (we don't use boost)
+# darwin                                                doesn't apply (we are darwin, but this is another darwin)
+# fuchsia                                               we don't follow the fuchsia coding conventions
+# google-objc                                           doesn't apply (no Objective-C code)
+# linuxkernel                                           doesn't apply (we're not the linux kernel)
+# llvm                                                  specific to LLVM codebase or aliases or don't apply to us
+# llvmlibc                                              doesn't apply (we're not the llvm libc)
+# mpi                                                   doesn't apply (we're not using MPI)
+# objc                                                  doesn't apply (no Objective-C code)
+# openMP                                                doesn't apply (we're not using OpenMP)
+# zircon                                                utility checks that would need configuration
+
+## Aliasses
+# Having check aliases enabled harms performance in clang-tidy and is annoying to ignore locally, so we disable some aliases
+# The hicpp-* checks are generally aliasses (25) and only have a few original checks (4), so we use whitelisting here.
+# The cert-* checks are 22 aliasses and 15 original checks, so we also use whitelisting here.
+# bugprone-narrowing-conversions                               alias to cppcoreguidelines-narrowing-conversions
+# cppcoreguidelines-avoid-c-arrays                             alias to modernize-avoid-c-arrays
+# cppcoreguidelines-avoid-magic-numbers                        alias to readability-magic-numbers
+# cppcoreguidelines-c-copy-assignment-signature                alias to misc-unconventional-assign-operator
+# cppcoreguidelines-explicit-virtual-functions                 alias to modernize-use-override
+# cppcoreguidelines-macro-to-enum                              alias to modernize-macro-to-enum
+# cppcoreguidelines-non-private-member-variables-in-classes    alias to misc-non-private-member-variables-in-classes
+
+## Specifically disabled for this project
+# bugprone-easily-swappable-parameters                Okay for our benchmarks
+# cert-err58-cpp                                      GBenchmark macros trigger this
+# cppcoreguidelines-avoid-non-const-global-variables  GBenchmark macros trigger this
+# cppcoreguidelines-macro-usage                       GBenchmark requires using macros, and we have some platform/compiler macros
+# cppcoreguidelines-owning-memory                     GBenchmark macros trigger this
+# cppcoreguidelines-pro-bounds-constant-array-index   Sometimes required for our algorithms
+# cppcoreguidelines-pro-bounds-pointer-arithmetic     Sometimes required for our algorithms
+# cppcoreguidelines-pro-type-reinterpret-cast         We use reinterpret_cast
+# google-readability-todo                             Allowed for now.
+# modernize-use-trailing-return-type                  We allow the traditional syntax
+# portability-simd-intrinsics                         We need them
+# readability-magic-numbers                           Shuffle masks and vector types often use these, no way around it.
+# readability-uppercase-literal-suffix                We use lowercase suffixes
+
+## We would like to enable, but can't
+# misc-confusable-identifiers                         This check increases the runtime by approx. 10x. Upstream issue https://github.com/llvm/llvm-project/issues/57527
+
+
+CheckOptions:
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: UPPER_CASE
+
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+
+  - key: readability-identifier-naming.GlobalFunctionCase
+    value: lower_case
+
+  # For benchmarks, we use BM_lower_case
+  - key: readability-identifier-naming.GlobalFunctionIgnoredRegexp
+    value: "BM(_[a-z0-9]+)*"
+
+  - key: readability-identifier-naming.InlineNamespaceCase
+    value: lower_case
+
+  - key: readability-identifier-naming.LocalConstantCase
+    value: lower_case
+
+  - key: readability-identifier-naming.LocalVariableCase
+    value: lower_case
+
+  - key: readability-identifier-naming.MemberCase
+    value: lower_case
+
+  - key: readability-identifier-naming.ClassMemberCase
+    value: UPPER_CASE
+
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_'
+
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: '_'
+
+  - key: readability-identifier-naming.PublicMemberCase
+    value: lower_case
+
+  - key: readability-identifier-naming.MethodCase
+    value: lower_case
+
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+
+  - key: readability-identifier-naming.ConstantParameterCase
+    value: lower_case
+
+  - key: readability-identifier-naming.ParameterPackCase
+    value: lower_case
+
+  - key: readability-identifier-naming.StaticConstantCase
+    value: UPPER_CASE
+
+  - key: readability-identifier-naming.StaticVariableCase
+    value: UPPER_CASE
+
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+
+  # For our benchmarks, we use lower_case naming
+  - key: readability-identifier-naming.StructIgnoredRegexp
+    value: "[a-z0-9]+(_[a-z0-9]+)*"
+
+  - key: readability-identifier-naming.TypedefCase
+    value: CamelCase
+
+  - key: readability-identifier-naming.UnionCase
+    value: CamelCase
+
+  - key: readability-identifier-naming.UsingCase
+    value: lower_case
+
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+
+  - key: readability-identifier-length.MinimumVariableNameLength
+    value: 2
+
+  - key: readability-identifier-length.MinimumParameterNameLength
+    value: 2
+
+  - key: readability-identifier-length.MinimumLoopCounterNameLength
+    value: 1
+
+  - key: bugprone-argument-comment.IgnoreSingleArgument
+    value: true
+
+  - key: bugprone-argument-comment.CommentBoolLiterals
+    value: true
+
+  # Not all compilers fully support ranges yet.
+  - key: modernize-loop-convert.UseCxx20ReverseRanges
+    value: false
+
+    # We use `for (auto _ : state)` in the benchmark loop.
+  - key: readability-identifier-length.IgnoredVariableNames
+    value: ^[_]$
+
+    # We allow `a` and `b` for binary arithmetic functions
+  - key: readability-identifier-length.IgnoredParameterNames
+    value: ^[ab]$
+
+  - key: hicpp-signed-bitwise.IgnorePositiveIntegerLiterals
+    value: true
