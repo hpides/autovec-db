@@ -295,8 +295,8 @@ struct vector_512_scan {
 
 #if defined(__aarch64__)
 struct neon_scan {
-  using DictVec = simd::NeonVecT<sizeof(DictEntry)>;
-  using RowVec = simd::NeonVecT<sizeof(RowId)>;
+  using DictVec = simd::NeonVecT<sizeof(DictEntry)>::T;
+  using RowVec = simd::NeonVecT<sizeof(RowId)>::T;
 
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
 
@@ -333,23 +333,23 @@ struct neon_scan {
 
     RowId num_matching_rows = 0;
     static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
-    for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
+    for (RowId row = 0; row < NUM_ROWS; row += NUM_MATCHES_PER_VECTOR) {
       static_assert(NUM_MATCHES_PER_VECTOR == 4);
-      constexpr RowVec row_offsets = {0, 1, 2, 3};
-      const RowVec row_ids = vmovq_n_u32(start_row) + row_offsets;
+      constexpr RowVec ROW_OFFSETS = {0, 1, 2, 3};
+      const RowVec row_ids = vmovq_n_u32(row) + ROW_OFFSETS;
 
-      const DictVec rows_to_match = vld1q_u32(rows + start_row);
+      const DictVec rows_to_match = vld1q_u32(rows + row);
       const DictVec matches = vcltq_u32(rows_to_match, filter_vec);
 
       // TODO: if constexpr shuffle strategy
 
-      constexpr DictVec bit_mask = {1, 2, 4, 8};
-      const uint8_t mask = vaddvq_u32(vandq_u32(matches, bit_mask));
+      constexpr DictVec BIT_MASK = {1, 2, 4, 8};
+      const uint8_t mask = vaddvq_u32(vandq_u32(matches, BIT_MASK));
       assert(mask >> 4 == 0 && "High 4 bits must be 0");
 
       const TableVec shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
       // TODO: check if we can do this differently with: vqtbx1q_u8
-      RowVec compressed_rows = vqtbl1q_u8(row_ids, shuffle_mask);
+      const RowVec compressed_rows = vqtbl1q_u8(row_ids, shuffle_mask);
       vst1q_u32(output + num_matching_rows, compressed_rows);
       num_matching_rows += std::popcount(mask);
     }
