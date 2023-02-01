@@ -578,6 +578,50 @@ struct x86_256_avx2_scan_shuffle {
     return num_matching_rows;
   }
 };
+
+struct x86_256_avx2_scan_add {
+  static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m256i) / sizeof(DictEntry);
+
+  static_assert(NUM_MATCHES_PER_VECTOR == 8);
+  alignas(16) static constexpr std::array<std::array<uint32_t, 4>, 16> MATCHES_TO_ROW_OFFSETS =
+      lookup_table_for_compressed_offsets_by_comparison_result<4, uint32_t, 0>();
+
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict column_data = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    RowId num_matching_rows = 0;
+    static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
+
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      const auto* table_values = reinterpret_cast<const __m256i*>(column_data + chunk_start_row);
+      const __m256i compare_result = _mm256_cmpgt_epi32(_mm256_set1_epi32(static_cast<int>(filter_val)), *table_values);
+      const unsigned int packed_compare_result = _mm256_movemask_ps(reinterpret_cast<const __m256&>(compare_result));
+      const unsigned int packed_compare_result_low = packed_compare_result & 0b1111u;
+      const unsigned int packed_compare_result_high = (packed_compare_result >> 4u) & 0b1111u;
+
+      const int match_count_low = _mm_popcnt_u32(packed_compare_result_low);
+
+      const auto* matching_row_offsets_low =
+          reinterpret_cast<const __m128i*>(MATCHES_TO_ROW_OFFSETS[packed_compare_result_low].data());
+      const auto* matching_row_offsets_high =
+          reinterpret_cast<const __m128i*>(MATCHES_TO_ROW_OFFSETS[packed_compare_result_high].data());
+      const __m256i matching_row_offsets = _mm256_set_m128i(*matching_row_offsets_high, *matching_row_offsets_low);
+
+      const __m256i compressed_matching_rows = _mm256_set_m128i(_mm_set1_epi32(static_cast<int>(chunk_start_row + 4)),
+                                                                _mm_set1_epi32(static_cast<int>(chunk_start_row))) +
+                                               matching_row_offsets;
+
+      RowId* chunk_output = (output + num_matching_rows);
+      auto* low_chunk_output = reinterpret_cast<__m128i*>(chunk_output);
+      auto* high_chunk_output = reinterpret_cast<__m128i*>(chunk_output + match_count_low);
+      _mm256_storeu2_m128i(high_chunk_output, low_chunk_output, compressed_matching_rows);
+
+      num_matching_rows += _mm_popcnt_u32(packed_compare_result);
+    }
+    return num_matching_rows;
+  }
+};
 #endif
 
 #if AVX512_AVAILABLE
@@ -707,6 +751,7 @@ BENCHMARK(BM_dictionary_scan<x86_128_scan_shuffle>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_128_scan_add>)->BM_ARGS;
 
 BENCHMARK(BM_dictionary_scan<x86_256_avx2_scan_shuffle>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_256_avx2_scan_add>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
