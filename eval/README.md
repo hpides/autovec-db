@@ -1,3 +1,27 @@
+# Running the benchmarks
+Our measurements were done using a docker image based on ubuntu 22.10 with clang 15 and gcc 12.
+
+To repeat the measurements, run the following commands:
+```bash
+git clone https://github.com/hpides/autovec-db.git
+
+# using enroot:
+enroot import docker://hpides/autovec-db
+enroot create hpides+autovec-db.sqsh
+enroot start -m ./autovec-db/:/autovec-db --rw hpides+autovec-db
+
+# alternatively, using docker:
+docker pull hpides/autovec-db
+docker run -it -v "$(pwd):/autovec-db" hpides/autovec-db
+```
+
+The docker image was built using
+```bash
+docker build -t hpides/autovec-db .
+docker login
+docker push hpides/autovec-db
+```
+
 # Plots and Results
 
 This is a short guide on how to work with the results from the paper and generate the plots.
