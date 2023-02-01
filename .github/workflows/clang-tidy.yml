@@ -1,0 +1,22 @@
+name: Clang Tidy
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CLANG_TIDY: clang-tidy-15
+  RUN_CLANG_TIDY: run-clang-tidy-15
+
+jobs:
+  tidy:
+    runs-on: self-hosted
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Run clang-tidy
+      run: bash scripts/clang-tidy.sh
+

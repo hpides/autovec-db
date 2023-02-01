@@ -39,8 +39,8 @@ CompressedColumn compress_input(const std::vector<uint32_t>& input) {
   uint64_t bits_left = U64_BITS;
   size_t idx = 0;
 
-  for (uint32_t i : input) {
-    uint64_t val = i & MASK;
+  for (const uint32_t input_number : input) {
+    const uint64_t val = input_number & MASK;
     buffer[idx] |= val << (U64_BITS - bits_left);
 
     if (bits_left < COMPRESS_BITS) {
@@ -75,11 +75,11 @@ CompressedColumn compress_input(const std::vector<uint32_t>& input) {
 
 template <typename SimdLane>
 void print_lane(SimdLane* lane, bool as_bits = true, std::ostream& os = std::cout) {
-  constexpr size_t num_bytes = sizeof(SimdLane);
+  constexpr size_t NUM_BYTES = sizeof(SimdLane);
   if (as_bits) {
-    return print_bits_right_to_left(lane, num_bytes, os);
+    return print_bits_right_to_left(lane, NUM_BYTES, os);
   }
-  return print_bytes_right_to_left(lane, num_bytes, os);
+  return print_bytes_right_to_left(lane, NUM_BYTES, os);
 }
 
 }  // namespace
@@ -89,11 +89,11 @@ void BM_scanning(benchmark::State& state) {
   ScanFn scan_fn{};
 
   // Seed rng for same benchmark runs.
-  std::mt19937 rng{13131313};
+  std::mt19937 rng{std::random_device{}()};
 
   std::vector<uint32_t> tuples(NUM_TUPLES);
   for (size_t i = 0; i < NUM_TUPLES; ++i) {
-    tuples[i] = rng() & ((1 << COMPRESS_BITS) - 1);
+    tuples[i] = rng() & ((1u << COMPRESS_BITS) - 1);
     //    tuples[i] = 42;  // for debugging
   }
 
@@ -193,7 +193,7 @@ BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
 ///////////////////////
 struct vector_128_scan {
   static constexpr size_t VALUES_PER_ITERATION = 4;
-  static constexpr size_t ITERATIONS_PER_BATCH = (16 * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
+  static constexpr size_t ITERATIONS_PER_BATCH = (16ul * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
   static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;
   static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
   static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
@@ -203,7 +203,7 @@ struct vector_128_scan {
   using uint32x4 = simd::GccVec<uint32_t, 16>::T;
 
   // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
-  static constexpr uint8x16 SHUFFLE_MASKS[3] = {
+  static constexpr std::array SHUFFLE_MASKS = {
       uint8x16{0, 1, 2, 3, 1, 2, 3, 5, 2, 3, 4, 5, 3, 4, 5, 6},
       uint8x16{4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10},
       uint8x16{8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14},
@@ -228,9 +228,9 @@ struct vector_128_scan {
     // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
     // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
     // need to shift by 4 * `iter` to include this shift.
-    constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
+    constexpr int32_t SHIFT = 3 + (ITER * 4) + DANGLING_BITS;
 
-    lane = reinterpret_cast<uint32x4&>(lane) >> shift;
+    lane = reinterpret_cast<uint32x4&>(lane) >> SHIFT;
     TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
 
     lane = lane & AND_MASK;
@@ -291,7 +291,7 @@ struct vector_512_scan {
   using uint32x8_unaligned = simd::GccVec<uint32_t, 32>::UnalignedT;
 
   // clang-format off
-  static constexpr uint16x32 LANE_SHUFFLE_MASKS[4] = {
+  static constexpr std::array LANE_SHUFFLE_MASKS = {
     uint16x32{0, 1, 2, 3, 4, 5, 6, 7, 2, 3, 4, 5, 6, 7, 8, 9, 4, 5, 6, 7, 8, 9, 10, 11, 6, 7, 8, 9, 10, 11, 12, 13},
     uint16x32{9, 10, 11, 12, 13, 14, 15, 16, 11, 12, 13, 14, 15, 16, 17, 18, 13, 14, 15, 16, 17, 18, 19, 20, 15, 16, 17, 18, 19, 20, 21, 22},
     uint16x32{18, 19, 20, 21, 22, 23, 24, 25, 20, 21, 22, 23, 24, 25, 26, 27, 22, 23, 24, 25, 26, 27, 28, 29, 24, 25, 26, 27, 28, 29, 30, 31},
@@ -355,17 +355,14 @@ struct vector_512_scan {
   }
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    auto store_fn = [&]<typename Lane>(Lane decompressed_values) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wignored-attributes"
-      if constexpr (std::is_same_v<Lane, uint32x16>) {
+    auto store_fn = [&](auto decompressed_values) {
+      if constexpr (sizeof(decompressed_values) == 64) {
         *reinterpret_cast<uint16x32_unaligned*>(output) = decompressed_values;
         output += 16;
-      } else if constexpr (std::is_same_v<Lane, uint32x8>) {
+      } else if constexpr (sizeof(decompressed_values) == 32) {
         *reinterpret_cast<uint32x8_unaligned*>(output) = decompressed_values;
         output += 8;
       }
-#pragma GCC diagnostic pop
     };
 
     decompressor(input, num_tuples, store_fn);
@@ -470,40 +467,40 @@ BENCHMARK(BM_scanning<neon_scan>)->BM_ARGS;
 #if defined(__x86_64__)
 struct x86_128_scan {
   static constexpr size_t VALUES_PER_ITERATION = 4;
-  static constexpr size_t ITERATIONS_PER_BATCH = (16 * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
+  static constexpr size_t ITERATIONS_PER_BATCH = (16ul * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
   static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;
   static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
   static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
 
-  const __m128i SHUFFLE_MASKS[3] = {
-      _mm_set_epi8(6, 5, 4, 3, 5, 4, 3, 2, 5, 3, 2, 1, 3, 2, 1, 0),
-      _mm_set_epi8(10, 9, 8, 7, 9, 8, 7, 6, 8, 7, 6, 5, 7, 6, 5, 4),
-      _mm_set_epi8(14, 13, 12, 11, 13, 12, 11, 10, 12, 11, 10, 9, 11, 10, 9, 8),
-  };
-
-  const __m128i BYTE_ALIGN_MASK = _mm_set_epi32(1 << 0, 1 << 1, 1 << 2, 1 << 3);
-  const __m128i AND_MASK = _mm_set_epi8(0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1);
-
   template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
   inline void decompress_iteration(__m128i batch_lane, CallbackFn callback) {
+    const std::array shuffle_masks = {
+        _mm_set_epi8(6, 5, 4, 3, 5, 4, 3, 2, 5, 3, 2, 1, 3, 2, 1, 0),
+        _mm_set_epi8(10, 9, 8, 7, 9, 8, 7, 6, 8, 7, 6, 5, 7, 6, 5, 4),
+        _mm_set_epi8(14, 13, 12, 11, 13, 12, 11, 10, 12, 11, 10, 9, 11, 10, 9, 8),
+    };
+
+    const __m128i byte_align_mask = _mm_set_epi32(1 << 0, 1 << 1, 1 << 2, 1 << 3);
+    const __m128i and_mask = _mm_set_epi8(0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1);
+
     TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
 
-    __m128i lane = _mm_shuffle_epi8(batch_lane, SHUFFLE_MASKS[ITER]);
+    __m128i lane = _mm_shuffle_epi8(batch_lane, shuffle_masks[ITER]);
     TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
 
     // We need to use a multiply here instead of a shift, as _mm_sllv_epi32 is not available until AVX2.
-    lane = _mm_mullo_epi32(lane, BYTE_ALIGN_MASK);
+    lane = _mm_mullo_epi32(lane, byte_align_mask);
     TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
 
     // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
     // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
     // need to shift by 4 * `iter` to include this shift.
-    constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
+    constexpr int32_t SHIFT = 3 + (ITER * 4) + DANGLING_BITS;
 
-    lane = _mm_srli_epi32(lane, shift);
+    lane = _mm_srli_epi32(lane, SHIFT);
     TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
 
-    lane = _mm_and_si128(lane, AND_MASK);
+    lane = _mm_and_si128(lane, and_mask);
     TRACE_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
 
     callback(lane);
@@ -520,7 +517,7 @@ struct x86_128_scan {
       {
         const size_t offset = ((batch + 0) * BITS_PER_BATCH) / 8;
         const auto* pos = reinterpret_cast<const __m128i*>(compressed_data + offset);
-        __m128i batch_lane = _mm_loadu_si128(pos);
+        const __m128i batch_lane = _mm_loadu_si128(pos);
         decompress_iteration<0, 0>(batch_lane, callback);
         decompress_iteration<1, 0>(batch_lane, callback);
         decompress_iteration<2, 0>(batch_lane, callback);
@@ -528,7 +525,7 @@ struct x86_128_scan {
       {
         const size_t offset = ((batch + 1) * BITS_PER_BATCH) / 8;
         const auto* pos = reinterpret_cast<const __m128i*>(compressed_data + offset);
-        __m128i batch_lane = _mm_loadu_si128(pos);
+        const __m128i batch_lane = _mm_loadu_si128(pos);
         // In odd runs, we may have dangling bits at beginning of batch.
         decompress_iteration<0, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
         decompress_iteration<1, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
@@ -555,37 +552,37 @@ struct x86_512_scan {
   static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
   static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
 
-  // clang-format off
-  const __m512i LANE_SHUFFLE_MASKS[4] = {
-    _mm512_set_epi16(13, 12, 11, 10, 9, 8, 7, 6, 11, 10, 9, 8, 7, 6, 5, 4, 9, 8, 7, 6, 5, 4, 3, 2, 7, 6, 5, 4, 3, 2, 1, 0),
-    _mm512_set_epi16(22, 21, 20, 19, 18, 17, 16, 15, 20, 19, 18, 17, 16, 15, 14, 13, 18, 17, 16, 15, 14, 13, 12, 11, 16, 15, 14, 13, 12, 11, 10, 9),
-    _mm512_set_epi16(31, 30, 29, 28, 27, 26, 25, 24, 29, 28, 27, 26, 25, 24, 23, 22, 27, 26, 25, 24, 23, 22, 21, 20, 25, 24, 23, 22, 21, 20, 19, 18),
-    _mm512_set_epi16(40, 39, 38, 37, 36, 35, 34, 33, 38, 37, 36, 35, 34, 33, 32, 31, 36, 35, 34, 33, 32, 31, 30, 29, 34, 33, 32, 31, 30, 29, 28, 27)
-  };
-
-  const __m512i SHUFFLE_MASK = _mm512_set_epi8(6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
-                                               6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
-                                               6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
-                                               6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0);
-  // clang-format on
-
-  const __m512i SHIFT_MASK = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-  const __m512i AND_MASK = _mm512_set1_epi32((1 << COMPRESS_BITS) - 1);
-
   template <size_t ITER>
   inline __m512i decompress(__m512i batch_lane) {
+    // clang-format off
+    const std::array lane_shuffle_masks = {
+      _mm512_set_epi16(13, 12, 11, 10, 9, 8, 7, 6, 11, 10, 9, 8, 7, 6, 5, 4, 9, 8, 7, 6, 5, 4, 3, 2, 7, 6, 5, 4, 3, 2, 1, 0),
+      _mm512_set_epi16(22, 21, 20, 19, 18, 17, 16, 15, 20, 19, 18, 17, 16, 15, 14, 13, 18, 17, 16, 15, 14, 13, 12, 11, 16, 15, 14, 13, 12, 11, 10, 9),
+      _mm512_set_epi16(31, 30, 29, 28, 27, 26, 25, 24, 29, 28, 27, 26, 25, 24, 23, 22, 27, 26, 25, 24, 23, 22, 21, 20, 25, 24, 23, 22, 21, 20, 19, 18),
+      _mm512_set_epi16(40, 39, 38, 37, 36, 35, 34, 33, 38, 37, 36, 35, 34, 33, 32, 31, 36, 35, 34, 33, 32, 31, 30, 29, 34, 33, 32, 31, 30, 29, 28, 27)
+    };
+
+    const __m512i shuffle_mask = _mm512_set_epi8(6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
+                                                  6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
+                                                  6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
+                                                  6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0);
+    // clang-format on
+
+    const __m512i shift_mask = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+    const __m512i and_mask = _mm512_set1_epi32((1u << COMPRESS_BITS) - 1);
+
     TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
 
-    __m512i lane = _mm512_permutexvar_epi16(LANE_SHUFFLE_MASKS[ITER], batch_lane);
+    __m512i lane = _mm512_permutexvar_epi16(lane_shuffle_masks[ITER], batch_lane);
     TRACE_DO(std::cout << "a16 : "; print_lane(&lane););
 
-    lane = _mm512_shuffle_epi8(lane, SHUFFLE_MASK);
+    lane = _mm512_shuffle_epi8(lane, shuffle_mask);
     TRACE_DO(std::cout << "a4  : "; print_lane(&lane););
 
-    lane = _mm512_srlv_epi32(lane, SHIFT_MASK);
+    lane = _mm512_srlv_epi32(lane, shift_mask);
     TRACE_DO(std::cout << "bit : "; print_lane(&lane););
 
-    lane = _mm512_and_epi32(lane, AND_MASK);
+    lane = _mm512_and_epi32(lane, and_mask);
     TRACE_DO(std::cout << "and : "; print_lane(&lane););
 
     return lane;
@@ -609,25 +606,21 @@ struct x86_512_scan {
     for (size_t batch = 0; batch < num_batches; ++batch) {
       const size_t offset = batch * BYTES_PER_BATCH;
       const auto* pos = reinterpret_cast<const __m512i*>(compressed_data + offset);
-      __m512i batch_lane = _mm512_loadu_si512(pos);
+      const __m512i batch_lane = _mm512_loadu_si512(pos);
       decompress_batch(batch_lane, callback);
     }
   }
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    // We don't care about the attributes here, and we know that this is okay.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wignored-attributes"
-    auto store_fn = [&]<typename Lane>(Lane decompressed_values) {
-      if constexpr (std::is_same_v<Lane, __m512i>) {
+    auto store_fn = [&](auto decompressed_values) {
+      if constexpr (sizeof(decompressed_values) == 64) {
         _mm512_storeu_si512(reinterpret_cast<__m512i*>(output), reinterpret_cast<__m512i&>(decompressed_values));
         output += 16;
-      } else if constexpr (std::is_same_v<Lane, __m256i>) {
+      } else if constexpr (sizeof(decompressed_values) == 32) {
         _mm256_store_si256(reinterpret_cast<__m256i*>(output), reinterpret_cast<__m256i&>(decompressed_values));
         output += 8;
       }
     };
-#pragma GCC diagnostic pop
 
     decompressor(input, num_tuples, store_fn);
   }

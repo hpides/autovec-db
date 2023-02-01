@@ -1,17 +1,5 @@
-cmake-build-*/
-build*/
+# results produced by running the docker image
+*.csv
 
-#vim files
-*.swp
-
-# allow me to have a local .ignore file
-.ignore
-
-# clangd
-.cache
-
-# allow me to have a local compile_commands.json symlink into a build folder
-compile_commands.json
-
-# I like to have cpplint running
-CPPLINT.cfg
+# allow symlinking compare.py -> build_folder/deps/google_benchmark-src/tools/compare.py
+compare.py
