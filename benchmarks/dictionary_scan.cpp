@@ -684,8 +684,7 @@ void BM_dictionary_scan(benchmark::State& state) {
   for (size_t i = 0; i < NUM_ROWS; ++i) {
     column_data[i] = i % NUM_UNIQUE_VALUES;
   }
-  // Seed rng for same benchmark runs.
-  std::mt19937 rng{38932239};
+  std::mt19937 rng{std::random_device{}()};
   std::shuffle(column_data, column_data + NUM_ROWS, rng);
 
   // Correctness check with naive implementation
