@@ -54,6 +54,7 @@ Checks: >
   -cppcoreguidelines-pro-bounds-constant-array-index,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-type-reinterpret-cast,
+  -google-readability-todo,
   -modernize-use-trailing-return-type,
   -portability-simd-intrinsics,
   -readability-magic-numbers,
@@ -99,6 +100,7 @@ Checks: >
 # cppcoreguidelines-pro-bounds-constant-array-index   Sometimes required for our algorithms
 # cppcoreguidelines-pro-bounds-pointer-arithmetic     Sometimes required for our algorithms
 # cppcoreguidelines-pro-type-reinterpret-cast         We use reinterpret_cast
+# google-readability-todo                             Allowed for now.
 # modernize-use-trailing-return-type                  We allow the traditional syntax
 # portability-simd-intrinsics                         We need them
 # readability-magic-numbers                           Shuffle masks and vector types often use these, no way around it.
