@@ -3,3 +3,6 @@
 
 # allow symlinking compare.py -> build_folder/deps/google_benchmark-src/tools/compare.py
 compare.py
+
+cmake-build-*/
+build-*/
