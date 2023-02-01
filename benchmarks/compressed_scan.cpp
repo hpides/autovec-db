@@ -116,8 +116,8 @@ void BM_scanning(benchmark::State& state) {
     benchmark::DoNotOptimize(decompressed_column.aligned_data());
   }
 
-  state.counters["PerValue"] =
-      benchmark::Counter(state.iterations() * NUM_TUPLES, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+  state.counters["PerValue"] = benchmark::Counter(static_cast<double>(state.iterations()) * NUM_TUPLES,
+                                                  benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 ///////////////////////

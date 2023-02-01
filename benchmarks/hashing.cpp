@@ -69,7 +69,7 @@ void BM_hashing(benchmark::State& state) {
     benchmark::DoNotOptimize(hashes);
   }
 
-  state.counters["PerValue"] = benchmark::Counter(state.iterations() * keys_to_hash.size(),
+  state.counters["PerValue"] = benchmark::Counter(static_cast<double>(state.iterations() * keys_to_hash.size()),
                                                   benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 

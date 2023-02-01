@@ -46,7 +46,7 @@ VecT positional_single_bit_mask() {
   using ElementT = std::decay_t<decltype(result[0])>;
   static_assert(std::is_unsigned_v<ElementT>);
 
-  size_t vector_elements = sizeof(VecT) / sizeof(ElementT);
+  const size_t vector_elements = sizeof(VecT) / sizeof(ElementT);
 
   ElementT current_value = 1;
   for (size_t i = 0; i < vector_elements; ++i) {
@@ -161,16 +161,17 @@ MaskT gcc_comparison_to_bitmask(VectorT bytemask) {
   constexpr size_t NUM_ELEMENTS = sizeof(VectorT) / sizeof(ElementT);
   static_assert(sizeof(MaskT) * 8 >= NUM_ELEMENTS, "Number of elements greater than size of mask");
 
-  const VectorT element_masks = simd::positional_single_bit_mask<VectorT>();
+  const auto element_masks = simd::positional_single_bit_mask<VectorT>();
   const auto single_bits_set = bytemask & element_masks;
 
-  const ElementT* element_ptr = reinterpret_cast<const ElementT*>(&single_bits_set);
+  const auto* element_ptr = reinterpret_cast<const ElementT*>(&single_bits_set);
   constexpr size_t ELEMENTS_COMBINED_PER_ITERATION = sizeof(ElementT) * 8;
 
   MaskT result = 0;
   for (size_t start_element = 0; start_element < NUM_ELEMENTS; start_element += ELEMENTS_COMBINED_PER_ITERATION) {
     const auto sub_bits_begin = element_ptr + start_element;
     const auto sub_bits_end = std::min(sub_bits_begin + ELEMENTS_COMBINED_PER_ITERATION, element_ptr + NUM_ELEMENTS);
+    // NOLINTNEXTLINE(bugprone-fold-init-type): We might intentionally add up few big types into one small type here
     const MaskT sub_accumulation_result = std::accumulate(sub_bits_begin, sub_bits_end, MaskT{0});
     result |= sub_accumulation_result << start_element;
   }
@@ -241,7 +242,7 @@ inline MaskT comparison_to_bitmask(VectorT vec) {
   MaskVecT mask_vector = __builtin_convertvector(vec, MaskVecT);
   MaskT mask = reinterpret_cast<MaskT&>(mask_vector);
   if constexpr (NUM_MASK_BITS != 8 * sizeof(MaskT)) {
-    mask &= (1 << NUM_MASK_BITS) - 1;
+    mask &= (MaskT{1} << NUM_MASK_BITS) - MaskT{1};
   }
   return mask;
 #else

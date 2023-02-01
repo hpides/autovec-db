@@ -194,7 +194,7 @@ struct gcc_vector_naive_bitmask {
       // platform-specific intrinsics. However, this pessimizes optimizations of multiple vector operations: Clang can
       // optimize
       // __builtin_convertvector(a == b, boolvector) into a single instruction, the GCC approach wouldn't do that.
-      VecT subresult_bool_vec = subinput1 == subinput2;
+      const VecT subresult_bool_vec = subinput1 == subinput2;
       MaskT result = 0;
       for (size_t i = 0; i < NUM_VECTOR_ELEMENTS; ++i) {
         result |= subresult_bool_vec[i] ? 1ull << i : 0;
@@ -240,15 +240,13 @@ struct gcc_vector_custom_bitmask {
   using ElementT = typename InputT::DataT;
 
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
-  static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
-
   using VecT = typename simd::GccVec<ElementT, VECTOR_BYTES>::T;
 
   struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
-      VecT subresult_bool_vec = subinput1 == subinput2;
+      const VecT subresult_bool_vec = subinput1 == subinput2;
       return simd::detail::gcc_comparison_to_bitmask<MaskT>(subresult_bool_vec);
     }
   };

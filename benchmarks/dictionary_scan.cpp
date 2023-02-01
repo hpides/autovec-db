@@ -16,7 +16,7 @@ using DictColumn = AlignedData<DictEntry, 64>;
 using MatchingRows = AlignedData<RowId, 64>;
 
 static constexpr size_t NUM_BASE_ROWS = 16;
-static constexpr size_t SCALE_FACTOR = 1024 * 64;
+static constexpr size_t SCALE_FACTOR = 1024ull * 64;
 static constexpr size_t NUM_ROWS = NUM_BASE_ROWS * SCALE_FACTOR;
 static constexpr size_t NUM_UNIQUE_VALUES = 16;
 
@@ -27,7 +27,7 @@ static constexpr size_t NUM_UNIQUE_VALUES = 16;
  */
 template <size_t ComparisonResultBits, typename IndexT, IndexT unused_index>
 static constexpr auto lookup_table_for_compressed_offsets_by_comparison_result() {
-  std::array<std::array<IndexT, ComparisonResultBits>, 1 << ComparisonResultBits> lookup_table;
+  std::array<std::array<IndexT, ComparisonResultBits>, 1 << ComparisonResultBits> lookup_table{};
 
   for (size_t index = 0; index < lookup_table.size(); ++index) {
     auto& shuffle_mask = lookup_table[index];
@@ -71,7 +71,7 @@ struct autovec_scalar_scan {
     RowId num_matching_rows = 0;
     for (RowId row = 0; row < NUM_ROWS; ++row) {
       output[num_matching_rows] = row;
-      num_matching_rows += column_data[row] < filter_val;
+      num_matching_rows += static_cast<int>(column_data[row] < filter_val);
     }
     return num_matching_rows;
   }
@@ -95,7 +95,7 @@ struct vector_128_scan_predication {
 
       for (RowId row = 0; row < NUM_MATCHES_PER_VECTOR; ++row) {
         output[num_matching_rows] = i + row;
-        num_matching_rows += matches[row] & 1;
+        num_matching_rows += matches[row] & 1u;
       }
     }
 
@@ -137,12 +137,12 @@ struct vector_128_scan_shuffle {
       const DictVec matches = rows_to_match < filter_vec;
 
       static_assert(NUM_MATCHES_PER_VECTOR == 4);
-      constexpr RowVec row_offsets{0, 1, 2, 3};
-      const RowVec row_ids = simd::broadcast<RowVec>(i) + row_offsets;
+      constexpr RowVec ROW_OFFSETS{0, 1, 2, 3};
+      const RowVec row_ids = simd::broadcast<RowVec>(i) + ROW_OFFSETS;
       const uint8_t mask = simd::comparison_to_bitmask<DictVec, 4>(matches);
       assert(mask < 16 && "Mask cannot have more than 4 bits set.");
 
-      const ShuffleVec shuffle_mask = simd::load<ShuffleVec>(MATCHES_TO_SHUFFLE_MASK[mask].data());
+      const auto shuffle_mask = simd::load<ShuffleVec>(MATCHES_TO_SHUFFLE_MASK[mask].data());
       const RowVec compressed_rows = simd::shuffle_vector(row_ids, shuffle_mask);
       simd::store_unaligned(output + num_matching_rows, compressed_rows);
       num_matching_rows += std::popcount(mask);
@@ -186,9 +186,9 @@ struct vector_128_scan_add {
 
 // TODO: This is currently a tiny bit faster than the version below with 64k masks. Leaving both in the code for now, so
 //       we can clean this up in two "shuffle strategies".
-enum class vector_512_scan_strategy { SHUFFLE_MASK_16_BIT, SHUFFLE_MASK_8_BIT, SHUFFLE_MASK_4_BIT };
+enum class Vector512ScanStrategy { SHUFFLE_MASK_16_BIT, SHUFFLE_MASK_8_BIT, SHUFFLE_MASK_4_BIT };
 
-template <vector_512_scan_strategy STRATEGY>
+template <Vector512ScanStrategy STRATEGY>
 struct vector_512_scan {
   using DictVec = simd::GccVec<uint32_t, 64>::T;
   using RowVec = simd::GccVec<uint32_t, 64>::T;
@@ -246,7 +246,7 @@ struct vector_512_scan {
     using ShuffleMask4Elements = simd::GccVec<ShuffleVecElementT, 4 * sizeof(ShuffleVecElementT)>::T;
 
     for (uint8_t i = 0; i < 16; i += 4) {
-      const uint8_t current_mask = (mask >> i) & 0xF;
+      const uint8_t current_mask = (mask >> i) & 0b1111u;
       auto current_shuffle_mask = simd::load<ShuffleMask4Elements>(MATCHES_TO_SHUFFLE_MASK_4_BIT[current_mask].data());
       current_shuffle_mask += i;
       std::memcpy(combined_mask.data() + first_empty_slot, &current_shuffle_mask, sizeof(current_shuffle_mask));
@@ -265,8 +265,8 @@ struct vector_512_scan {
     static_assert(NUM_ROWS % (NUM_MATCHES_PER_VECTOR) == 0);
     for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
       static_assert(NUM_MATCHES_PER_VECTOR == 16);
-      constexpr RowVec row_offsets{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-      const RowVec row_ids = simd::broadcast<RowVec>(i) + row_offsets;
+      constexpr RowVec ROW_OFFSETS{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+      const RowVec row_ids = simd::broadcast<RowVec>(i) + ROW_OFFSETS;
 
       const auto rows_to_match = simd::load<DictVec>(rows + i);
       const DictVec matches = rows_to_match < filter_vec;
@@ -275,12 +275,12 @@ struct vector_512_scan {
 
       static_assert(NUM_MATCHES_PER_VECTOR == 16);
       ShuffleMask16Elements shuffle_mask;
-      if constexpr (STRATEGY == vector_512_scan_strategy::SHUFFLE_MASK_16_BIT) {
+      if constexpr (STRATEGY == Vector512ScanStrategy::SHUFFLE_MASK_16_BIT) {
         shuffle_mask = get_shuffle_mask_from_16bit(mask);
-      } else if constexpr (STRATEGY == vector_512_scan_strategy::SHUFFLE_MASK_8_BIT) {
+      } else if constexpr (STRATEGY == Vector512ScanStrategy::SHUFFLE_MASK_8_BIT) {
         shuffle_mask = get_shuffle_mask_from_8bit(mask);
       } else {
-        static_assert(STRATEGY == vector_512_scan_strategy::SHUFFLE_MASK_4_BIT);
+        static_assert(STRATEGY == Vector512ScanStrategy::SHUFFLE_MASK_4_BIT);
         shuffle_mask = get_shuffle_mask_from_4bit(mask);
       }
 
@@ -372,7 +372,7 @@ struct x86_128_scan_manual_inner_loop {
 
     for (RowId row = 0; row < NUM_ROWS; row += NUM_MATCHES_PER_VECTOR) {
       const auto* table_values = reinterpret_cast<const __m128i*>(column_data + row);
-      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(static_cast<int>(filter_val)));
       unsigned int matches_bits = _mm_movemask_ps(reinterpret_cast<__m128>(compare_result));
 
       while (matches_bits != 0) {
@@ -397,14 +397,15 @@ struct x86_128_scan_predication {
 
     for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       const auto* table_values = reinterpret_cast<const __m128i*>(column_data + chunk_start_row);
-      const __m128i compare_result_vector = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+      const __m128i compare_result_vector =
+          _mm_cmplt_epi32(*table_values, _mm_set1_epi32(static_cast<int>(filter_val)));
 
-      alignas(16) std::array<uint32_t, 4> compare_result;
+      alignas(16) std::array<uint32_t, 4> compare_result{};
       std::memcpy(compare_result.data(), &compare_result_vector, sizeof(compare_result));
 
       for (RowId row_offset = 0; row_offset < NUM_MATCHES_PER_VECTOR; ++row_offset) {
         output[num_matching_rows] = chunk_start_row + row_offset;
-        num_matching_rows += compare_result[row_offset] & 1;
+        num_matching_rows += compare_result[row_offset] & 1u;
       }
     }
     return num_matching_rows;
@@ -423,9 +424,10 @@ struct x86_128_scan_pext {
 
     for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       const auto* table_values = reinterpret_cast<const __m128i*>(column_data + chunk_start_row);
-      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(static_cast<int>(filter_val)));
 
-      const __m128i row_indices = _mm_add_epi32(_mm_set1_epi32(chunk_start_row), _mm_set_epi32(3, 2, 1, 0));
+      const __m128i row_indices =
+          _mm_add_epi32(_mm_set1_epi32(static_cast<int>(chunk_start_row)), _mm_set_epi32(3, 2, 1, 0));
 
       const uint64_t lower_mask = _mm_extract_epi64(compare_result, 0);
       const uint64_t lower_indices = _mm_extract_epi64(row_indices, 0);
@@ -484,11 +486,12 @@ struct x86_128_scan_shuffle {
 
     for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       const auto* table_values = reinterpret_cast<const __m128i*>(column_data + chunk_start_row);
-      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(static_cast<int>(filter_val)));
       const unsigned int packed_compare_result = _mm_movemask_ps(reinterpret_cast<const __m128&>(compare_result));
 
-      const __m128i row_indices = _mm_add_epi32(_mm_set1_epi32(chunk_start_row), _mm_set_epi32(3, 2, 1, 0));
-      const __m128i* shuffle_mask =
+      const __m128i row_indices =
+          _mm_add_epi32(_mm_set1_epi32(static_cast<int>(chunk_start_row)), _mm_set_epi32(3, 2, 1, 0));
+      const auto* shuffle_mask =
           reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result);
       const __m128i compressed_indices = _mm_shuffle_epi8(row_indices, *shuffle_mask);
 
@@ -516,12 +519,13 @@ struct x86_128_scan_add {
 
     for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       const auto* table_values = reinterpret_cast<const __m128i*>(column_data + chunk_start_row);
-      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(filter_val));
+      const __m128i compare_result = _mm_cmplt_epi32(*table_values, _mm_set1_epi32(static_cast<int>(filter_val)));
       const unsigned int packed_compare_result = _mm_movemask_ps(reinterpret_cast<const __m128&>(compare_result));
 
-      const __m128i* matching_row_offsets =
+      const auto* matching_row_offsets =
           reinterpret_cast<const __m128i*>(MATCHES_TO_ROW_OFFSETS.data() + packed_compare_result);
-      const __m128i compressed_matching_rows = _mm_set1_epi32(chunk_start_row) + *matching_row_offsets;
+      const __m128i compressed_matching_rows =
+          _mm_set1_epi32(static_cast<int>(chunk_start_row)) + *matching_row_offsets;
 
       _mm_storeu_si128(reinterpret_cast<__m128i_u*>(output + num_matching_rows), compressed_matching_rows);
 
@@ -547,17 +551,17 @@ struct x86_256_avx2_scan_shuffle {
 
     for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       const auto* table_values = reinterpret_cast<const __m256i*>(column_data + chunk_start_row);
-      const __m256i compare_result = _mm256_cmpgt_epi32(_mm256_set1_epi32(filter_val), *table_values);
-      const __m256i row_indices =
-          _mm256_add_epi32(_mm256_set1_epi32(chunk_start_row), _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0));
+      const __m256i compare_result = _mm256_cmpgt_epi32(_mm256_set1_epi32(static_cast<int>(filter_val)), *table_values);
+      const __m256i row_indices = _mm256_add_epi32(_mm256_set1_epi32(static_cast<int>(chunk_start_row)),
+                                                   _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0));
 
       const unsigned int packed_compare_result = _mm256_movemask_ps(reinterpret_cast<const __m256&>(compare_result));
-      const unsigned int packed_compare_result_low = packed_compare_result & 0xF;
-      const unsigned int packed_compare_result_high = (packed_compare_result >> 4) & 0xF;
+      const unsigned int packed_compare_result_low = packed_compare_result & 0b1111u;
+      const unsigned int packed_compare_result_high = (packed_compare_result >> 4u) & 0b1111u;
 
-      const __m128i* shuffle_mask_low =
+      const auto* shuffle_mask_low =
           reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result_low);
-      const __m128i* shuffle_mask_high =
+      const auto* shuffle_mask_high =
           reinterpret_cast<const __m128i*>(MATCHES_TO_SHUFFLE_MASK.data() + packed_compare_result_high);
       const __m256i shuffle_mask = _mm256_set_m128i(*shuffle_mask_high, *shuffle_mask_low);
 
@@ -574,9 +578,9 @@ struct x86_256_avx2_scan_shuffle {
 #endif
 
 #if AVX512_AVAILABLE
-enum class x86_512_scan_strategy { COMPRESSSTORE, COMPRESS_PLUS_STORE };
+enum class X86512ScanStrategy { COMPRESSSTORE, COMPRESS_PLUS_STORE };
 
-template <x86_512_scan_strategy STRATEGY>
+template <X86512ScanStrategy STRATEGY>
 struct x86_512_scan {
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m512i) / sizeof(DictEntry);
 
@@ -584,7 +588,7 @@ struct x86_512_scan {
     const DictEntry* __restrict rows = column.aligned_data();
     RowId* __restrict output = matching_rows->aligned_data();
 
-    const __m512i filter_vec = _mm512_set1_epi32(filter_val);
+    const __m512i filter_vec = _mm512_set1_epi32(static_cast<int>(filter_val));
     const __m512i row_id_offsets = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
 
     RowId num_matching_rows = 0;
@@ -592,15 +596,16 @@ struct x86_512_scan {
     for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
       // x86: Doing this instead of {start_row + 0, start_row + 1, ...} has a 3x performance improvement! Also applies
       // to the gcc-vec versions.
-      const __m512i row_ids = _mm512_set1_epi32(i) + row_id_offsets;
+      const __m512i row_ids = _mm512_set1_epi32(static_cast<int>(i)) + row_id_offsets;
 
       const __m512i rows_to_match = _mm512_load_epi32(rows + i);
       const __mmask16 matches = _mm512_cmplt_epi32_mask(rows_to_match, filter_vec);
 
       // TODO is there any reason why we would use compress plus store over compressstore?
-      if constexpr (STRATEGY == x86_512_scan_strategy::COMPRESSSTORE) {
+      if constexpr (STRATEGY == X86512ScanStrategy::COMPRESSSTORE) {
         _mm512_mask_compressstoreu_epi32(output + num_matching_rows, matches, row_ids);
-      } else if (STRATEGY == x86_512_scan_strategy::COMPRESS_PLUS_STORE) {
+      } else {
+        static_assert(STRATEGY == X86512ScanStrategy::COMPRESS_PLUS_STORE);
         auto compressed_rows = _mm512_mask_compress_epi32(row_ids, matches, row_ids);
         _mm512_storeu_epi32(output + num_matching_rows, compressed_rows);
       }
@@ -668,8 +673,8 @@ void BM_dictionary_scan(benchmark::State& state) {
     benchmark::DoNotOptimize(num_matches);
   }
 
-  state.counters["PerValue"] =
-      benchmark::Counter(state.iterations() * NUM_ROWS, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+  state.counters["PerValue"] = benchmark::Counter(static_cast<double>(state.iterations() * NUM_ROWS),
+                                                  benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 // #define BM_ARGS
@@ -683,9 +688,9 @@ BENCHMARK(BM_dictionary_scan<vector_128_scan_shuffle>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_128_scan_predication>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_128_scan_add>)->BM_ARGS;
 
-BENCHMARK(BM_dictionary_scan<vector_512_scan<vector_512_scan_strategy::SHUFFLE_MASK_16_BIT>>)->BM_ARGS;
-BENCHMARK(BM_dictionary_scan<vector_512_scan<vector_512_scan_strategy::SHUFFLE_MASK_8_BIT>>)->BM_ARGS;
-BENCHMARK(BM_dictionary_scan<vector_512_scan<vector_512_scan_strategy::SHUFFLE_MASK_4_BIT>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<vector_512_scan<Vector512ScanStrategy::SHUFFLE_MASK_16_BIT>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<vector_512_scan<Vector512ScanStrategy::SHUFFLE_MASK_8_BIT>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<vector_512_scan<Vector512ScanStrategy::SHUFFLE_MASK_4_BIT>>)->BM_ARGS;
 
 #if defined(__aarch64__)
 BENCHMARK(BM_dictionary_scan<neon_scan>)->BM_ARGS;
@@ -702,8 +707,8 @@ BENCHMARK(BM_dictionary_scan<x86_128_scan_add>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
-BENCHMARK(BM_dictionary_scan<x86_512_scan<x86_512_scan_strategy::COMPRESSSTORE>>)->BM_ARGS;
-BENCHMARK(BM_dictionary_scan<x86_512_scan<x86_512_scan_strategy::COMPRESS_PLUS_STORE>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_512_scan<X86512ScanStrategy::COMPRESSSTORE>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_512_scan<X86512ScanStrategy::COMPRESS_PLUS_STORE>>)->BM_ARGS;
 #endif
 
 BENCHMARK_MAIN();
