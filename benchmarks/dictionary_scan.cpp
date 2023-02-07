@@ -86,15 +86,14 @@ struct vector_128_scan_predication {
 
     const DictEntry* __restrict rows = column.aligned_data();
     RowId* __restrict output = matching_rows->aligned_data();
-    const auto filter_vec = simd::broadcast<DictVec>(filter_val);
 
     static_assert(NUM_ROWS % (NUM_MATCHES_PER_VECTOR) == 0);
-    for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
-      const auto rows_to_match = simd::load<DictVec>(rows + i);
-      const DictVec matches = rows_to_match < filter_vec;
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      const auto rows_to_match = simd::load<DictVec>(rows + chunk_start_row);
+      const DictVec matches = rows_to_match < filter_val;
 
       for (RowId row = 0; row < NUM_MATCHES_PER_VECTOR; ++row) {
-        output[num_matching_rows] = i + row;
+        output[num_matching_rows] = chunk_start_row + row;
         num_matching_rows += matches[row] & 1u;
       }
     }
@@ -128,17 +127,16 @@ struct vector_128_scan_shuffle {
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     const DictEntry* __restrict rows = column.aligned_data();
     RowId* __restrict output = matching_rows->aligned_data();
-    const auto filter_vec = simd::broadcast<DictVec>(filter_val);
 
     RowId num_matching_rows = 0;
     static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
-    for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
-      const auto rows_to_match = simd::load<DictVec>(rows + i);
-      const DictVec matches = rows_to_match < filter_vec;
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      const auto rows_to_match = simd::load<DictVec>(rows + chunk_start_row);
+      const DictVec matches = rows_to_match < filter_val;
 
       static_assert(NUM_MATCHES_PER_VECTOR == 4);
       constexpr RowVec ROW_OFFSETS{0, 1, 2, 3};
-      const RowVec row_ids = simd::broadcast<RowVec>(i) + ROW_OFFSETS;
+      const RowVec row_ids = chunk_start_row + ROW_OFFSETS;
       const uint8_t mask = simd::comparison_to_bitmask<DictVec, 4>(matches);
       assert(mask < 16 && "Mask cannot have more than 4 bits set.");
 
@@ -259,17 +257,16 @@ struct vector_512_scan {
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     const DictEntry* __restrict rows = column.aligned_data();
     RowId* __restrict output = matching_rows->aligned_data();
-    const auto filter_vec = simd::broadcast<DictVec>(filter_val);
 
     RowId num_matching_rows = 0;
     static_assert(NUM_ROWS % (NUM_MATCHES_PER_VECTOR) == 0);
-    for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       static_assert(NUM_MATCHES_PER_VECTOR == 16);
       constexpr RowVec ROW_OFFSETS{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-      const RowVec row_ids = simd::broadcast<RowVec>(i) + ROW_OFFSETS;
+      const RowVec row_ids = chunk_start_row + ROW_OFFSETS;
 
-      const auto rows_to_match = simd::load<DictVec>(rows + i);
-      const DictVec matches = rows_to_match < filter_vec;
+      const auto rows_to_match = simd::load<DictVec>(rows + chunk_start_row);
+      const DictVec matches = rows_to_match < filter_val;
 
       const uint16_t mask = simd::comparison_to_bitmask(matches);
 
@@ -333,7 +330,7 @@ struct neon_scan {
 
     RowId num_matching_rows = 0;
     static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
-    for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       static_assert(NUM_MATCHES_PER_VECTOR == 4);
       constexpr RowVec row_offsets = {0, 1, 2, 3};
       const RowVec row_ids = vmovq_n_u32(start_row) + row_offsets;
@@ -640,12 +637,12 @@ struct x86_512_scan {
 
     RowId num_matching_rows = 0;
     static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
-    for (RowId i = 0; i < NUM_ROWS; i += NUM_MATCHES_PER_VECTOR) {
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       // x86: Doing this instead of {start_row + 0, start_row + 1, ...} has a 3x performance improvement! Also applies
       // to the gcc-vec versions.
-      const __m512i row_ids = _mm512_set1_epi32(static_cast<int>(i)) + row_id_offsets;
+      const __m512i row_ids = _mm512_set1_epi32(static_cast<int>(chunk_start_row)) + row_id_offsets;
 
-      const __m512i rows_to_match = _mm512_load_epi32(rows + i);
+      const __m512i rows_to_match = _mm512_load_epi32(rows + chunk_start_row);
       const __mmask16 matches = _mm512_cmplt_epi32_mask(rows_to_match, filter_vec);
 
       // TODO is there any reason why we would use compress plus store over compressstore?

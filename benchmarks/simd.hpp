@@ -215,11 +215,6 @@ inline VectorT shuffle_vector(VectorT vec, MaskT mask) {
 #endif
 }
 
-template <typename VectorT, typename ElementT>
-inline VectorT broadcast(ElementT value) {
-  return value - VectorT{};
-}
-
 template <typename VectorT>
 inline VectorT load(const void* ptr) {
   return *reinterpret_cast<const VectorT*>(ptr);

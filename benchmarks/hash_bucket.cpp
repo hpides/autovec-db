@@ -187,8 +187,7 @@ struct vector_bytemask_find {
 
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
     const auto fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
-    const auto lookup_fp = simd::broadcast<uint8x16>(fingerprint);
-    const uint8x16 matching_fingerprints = fp_vector == lookup_fp;
+    const uint8x16 matching_fingerprints = fp_vector == fingerprint;
 
     return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(matching_fingerprints));
   }
@@ -202,9 +201,7 @@ struct vector_bitmask_find {
 
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
     const auto fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
-    const auto lookup_fp = simd::broadcast<uint8x16>(fingerprint);
-
-    const boolx16 matching_fingerprints_bits_vec = __builtin_convertvector(fp_vector == lookup_fp, boolx16);
+    const boolx16 matching_fingerprints_bits_vec = __builtin_convertvector(fp_vector == fingerprint, boolx16);
     const uint16_t matching_fingerprints_bits = reinterpret_cast<const uint16_t&>(matching_fingerprints_bits_vec);
 
     return key_matches_from_fingerprint_matches_bit(bucket, key, matching_fingerprints_bits);
