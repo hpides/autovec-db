@@ -22,8 +22,9 @@ static constexpr size_t NUM_UNIQUE_VALUES = 16;
 
 /*
  * Builds a lookup table that, given a comparison-result bitmask, returns the indices of the matching elements
- * compressed to the front. Can be used as a shuffle mask for source-selecing shuffles. Examples: [0 0 0 1] -> [0,
- * unused_index, unused_index, unused_index] [1 0 1 0] -> [1, 3, unused_index, unused_index]
+ * compressed to the front. Can be used as a shuffle mask for source-selecting shuffles. Examples:
+ * [0 0 0 1] -> [0, unused_index, unused_index, unused_index]
+ * [1 0 1 0] -> [1, 3, unused_index, unused_index]
  */
 template <size_t ComparisonResultBits, typename IndexT, IndexT unused_index>
 static constexpr auto lookup_table_for_compressed_offsets_by_comparison_result() {
@@ -182,8 +183,6 @@ struct vector_128_scan_add {
   }
 };
 
-// TODO: This is currently a tiny bit faster than the version below with 64k masks. Leaving both in the code for now, so
-//       we can clean this up in two "shuffle strategies".
 enum class Vector512ScanStrategy { SHUFFLE_MASK_16_BIT, SHUFFLE_MASK_8_BIT, SHUFFLE_MASK_4_BIT };
 
 template <Vector512ScanStrategy STRATEGY>
@@ -292,8 +291,8 @@ struct vector_512_scan {
 
 #if defined(__aarch64__)
 struct neon_scan {
-  using DictVec = simd::NeonVecT<sizeof(DictEntry)>;
-  using RowVec = simd::NeonVecT<sizeof(RowId)>;
+  using DictVec = simd::NeonVecT<sizeof(DictEntry)>::T;
+  using RowVec = simd::NeonVecT<sizeof(RowId)>::T;
 
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
 
@@ -332,21 +331,21 @@ struct neon_scan {
     static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
     for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       static_assert(NUM_MATCHES_PER_VECTOR == 4);
-      constexpr RowVec row_offsets = {0, 1, 2, 3};
-      const RowVec row_ids = vmovq_n_u32(start_row) + row_offsets;
+      constexpr RowVec ROW_OFFSETS = {0, 1, 2, 3};
+      const RowVec row_ids = vmovq_n_u32(chunk_start_row) + ROW_OFFSETS;
 
-      const DictVec rows_to_match = vld1q_u32(rows + start_row);
+      const DictVec rows_to_match = vld1q_u32(rows + chunk_start_row);
       const DictVec matches = vcltq_u32(rows_to_match, filter_vec);
 
       // TODO: if constexpr shuffle strategy
 
-      constexpr DictVec bit_mask = {1, 2, 4, 8};
-      const uint8_t mask = vaddvq_u32(vandq_u32(matches, bit_mask));
+      constexpr DictVec BIT_MASK = {1, 2, 4, 8};
+      const uint8_t mask = vaddvq_u32(vandq_u32(matches, BIT_MASK));
       assert(mask >> 4 == 0 && "High 4 bits must be 0");
 
       const TableVec shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
       // TODO: check if we can do this differently with: vqtbx1q_u8
-      RowVec compressed_rows = vqtbl1q_u8(row_ids, shuffle_mask);
+      const RowVec compressed_rows = vqtbl1q_u8(row_ids, shuffle_mask);
       vst1q_u32(output + num_matching_rows, compressed_rows);
       num_matching_rows += std::popcount(mask);
     }
