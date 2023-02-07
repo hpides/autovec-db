@@ -6,6 +6,7 @@
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
+#include "simd.hpp"
 
 #define BM_ARGS Arg(27)
 
@@ -67,6 +68,9 @@ void BM_hashing(benchmark::State& state) {
     const HashArray hashes = hash_fn(keys_to_hash, required_bits);
     benchmark::DoNotOptimize(hashes);
   }
+
+  state.counters["PerValue"] = benchmark::Counter(static_cast<double>(state.iterations() * keys_to_hash.size()),
+                                                  benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 ///////////////////////
@@ -114,7 +118,7 @@ struct vector_hash {
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(uint64_t);
 
-  using VecT = typename GccVec<uint64_t, VECTOR_BYTES>::T;
+  using VecT = typename simd::GccVec<uint64_t, VECTOR_BYTES>::T;
   static_assert(sizeof(VecT) == VECTOR_BYTES);
 
   HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
@@ -297,7 +301,7 @@ struct x86_256_hash {
 BENCHMARK(BM_hashing<x86_256_hash>)->BM_ARGS;
 #endif
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 struct x86_512_hash {
   using VecT = __m512i;
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);

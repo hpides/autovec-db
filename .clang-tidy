@@ -55,6 +55,7 @@ Checks: >
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-type-reinterpret-cast,
   -google-readability-todo,
+  -hicpp-signed-bitwise,
   -modernize-use-trailing-return-type,
   -portability-simd-intrinsics,
   -readability-magic-numbers,
@@ -101,6 +102,7 @@ Checks: >
 # cppcoreguidelines-pro-bounds-pointer-arithmetic     Sometimes required for our algorithms
 # cppcoreguidelines-pro-type-reinterpret-cast         We use reinterpret_cast
 # google-readability-todo                             Allowed for now.
+# hicpp-signed-bitwise                                Useful checks, but way too many false positives in C++20 with small unsigned types that undergo integer promotion
 # modernize-use-trailing-return-type                  We allow the traditional syntax
 # portability-simd-intrinsics                         We need them
 # readability-magic-numbers                           Shuffle masks and vector types often use these, no way around it.

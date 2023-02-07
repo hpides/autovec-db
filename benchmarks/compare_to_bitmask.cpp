@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <bitset>
 #include <cassert>
 #include <iostream>
@@ -6,6 +5,7 @@
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
+#include "simd.hpp"
 
 // TODO: We commonly use DefaultMaskT, which uses small unsigned types (uint8 / uint16), and then build up a result
 // on that type (e.g. by OR-ing together subresults). In theory, overflows must cause modulo-results, so this
@@ -130,8 +130,8 @@ struct clang_vector_bitmask {
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
 
-  using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
-  using MaskVecT = typename ClangBitmask<NUM_VECTOR_ELEMENTS>::T;
+  using VecT = typename simd::GccVec<ElementT, VECTOR_BYTES>::T;
+  using MaskVecT = typename simd::ClangBitmask<NUM_VECTOR_ELEMENTS>::T;
 
   using SingleComparisonResultT = typename UnsignedInt<sizeof(MaskVecT)>::T;
 
@@ -180,7 +180,7 @@ struct gcc_vector_naive_bitmask {
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
 
-  using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
+  using VecT = typename simd::GccVec<ElementT, VECTOR_BYTES>::T;
 
   struct GetSubresultMask {
     using InputT = VecT;
@@ -194,7 +194,7 @@ struct gcc_vector_naive_bitmask {
       // platform-specific intrinsics. However, this pessimizes optimizations of multiple vector operations: Clang can
       // optimize
       // __builtin_convertvector(a == b, boolvector) into a single instruction, the GCC approach wouldn't do that.
-      auto subresult_bool_vec = subinput1 == subinput2;
+      const VecT subresult_bool_vec = subinput1 == subinput2;
       MaskT result = 0;
       for (size_t i = 0; i < NUM_VECTOR_ELEMENTS; ++i) {
         result |= subresult_bool_vec[i] ? 1ull << i : 0;
@@ -240,36 +240,14 @@ struct gcc_vector_custom_bitmask {
   using ElementT = typename InputT::DataT;
 
   static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
-  static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(ElementT);
-
-  using VecT = typename GccVec<ElementT, VECTOR_BYTES>::T;
+  using VecT = typename simd::GccVec<ElementT, VECTOR_BYTES>::T;
 
   struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
-      // We'd want this to be constexpr, but we can't:
-      // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101651
-      const VecT element_masks = positional_single_bit_mask<VecT, ElementT>();
-
-      auto subresult_bool_vec = subinput1 == subinput2;
-      auto single_bits_set = subresult_bool_vec & element_masks;
-
-      alignas(alignof(VecT)) std::array<ElementT, NUM_VECTOR_ELEMENTS> single_bit_array{};
-      std::memcpy(&single_bit_array, &single_bits_set, sizeof(single_bit_array));
-
-      constexpr size_t ELEMENTS_COMBINED_PER_ITERATION = sizeof(ElementT) * 8;
-
-      MaskT result = 0;
-      for (size_t start_element = 0; start_element < NUM_VECTOR_ELEMENTS;
-           start_element += ELEMENTS_COMBINED_PER_ITERATION) {
-        auto sub_bits_begin = single_bit_array.begin() + start_element;
-        auto sub_bits_end = std::min(sub_bits_begin + ELEMENTS_COMBINED_PER_ITERATION, single_bit_array.end());
-        // NOLINTNEXTLINE(bugprone-fold-init-type): A bigger fold type decreases performance here
-        const MaskT sub_accumulation_result = std::accumulate(sub_bits_begin, sub_bits_end, MaskT{0});
-        result |= static_cast<MaskT>(sub_accumulation_result << start_element);
-      }
-      return result;
+      const VecT subresult_bool_vec = subinput1 == subinput2;
+      return simd::detail::gcc_comparison_to_bitmask<MaskT>(subresult_bool_vec);
     }
   };
 
@@ -290,7 +268,7 @@ struct neon_bitmask {
   using InputT = InputT_;
   using ElementT = typename InputT::DataT;
 
-  using VecT = typename NeonVecT<sizeof(ElementT)>::T;
+  using VecT = typename simd::NeonVecT<sizeof(ElementT)>::T;
 
   struct GetSubresultMask {
     using InputT = VecT;
@@ -452,7 +430,7 @@ struct x86_256_avx2_bitmask {
   }
 };
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
 struct x86_512_bitmask {
   using MaskT = MaskT_;
@@ -518,6 +496,9 @@ void BM_compare_to_bitmask(benchmark::State& state) {
     const auto result = bench_fn(input1, input2);
     benchmark::DoNotOptimize(result);
   }
+
+  state.counters["PerValue"] =
+      benchmark::Counter(state.iterations() * input1.size(), benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 using Input_64B_as_64x1B = AlignedArray<uint8_t, 64, 64>;
@@ -595,7 +576,7 @@ BENCHMARK_WITH_64B_INPUT(x86_128_bitmask);
 BENCHMARK_WITH_64B_INPUT(x86_256_avx2_bitmask);
 #endif
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 BENCHMARK_WITH_64B_INPUT(x86_512_bitmask);
 #endif
 

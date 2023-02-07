@@ -10,6 +10,7 @@
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
+#include "simd.hpp"
 
 // This is the lowest common multiple of 12 and 56. We need 12 for the 128-Bit version and 56 for the 512-Bit one.
 static constexpr uint64_t NUM_BASE_TUPLES = 168;
@@ -114,6 +115,9 @@ void BM_scanning(benchmark::State& state) {
     scan_fn(compressed_column.aligned_data(), decompressed_column.aligned_data(), NUM_TUPLES);
     benchmark::DoNotOptimize(decompressed_column.aligned_data());
   }
+
+  state.counters["PerValue"] = benchmark::Counter(static_cast<double>(state.iterations()) * NUM_TUPLES,
+                                                  benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 ///////////////////////
@@ -194,9 +198,9 @@ struct vector_128_scan {
   static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
   static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
 
-  using uint8x16 = GccVec<uint8_t, 16>::T;
-  using uint8x16_unaligned = GccVec<uint8_t, 16>::UnalignedT;
-  using uint32x4 = GccVec<uint32_t, 16>::T;
+  using uint8x16 = simd::GccVec<uint8_t, 16>::T;
+  using uint8x16_unaligned = simd::GccVec<uint8_t, 16>::UnalignedT;
+  using uint32x4 = simd::GccVec<uint32_t, 16>::T;
 
   // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
   static constexpr std::array SHUFFLE_MASKS = {
@@ -215,7 +219,7 @@ struct vector_128_scan {
 
     TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
 
-    uint8x16 lane = shuffle_vector(batch_lane, SHUFFLE_MASKS[ITER]);
+    uint8x16 lane = simd::shuffle_vector(batch_lane, SHUFFLE_MASKS[ITER]);
     TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
 
     lane = reinterpret_cast<uint32x4&>(lane) << BYTE_ALIGN_MASK;
@@ -277,14 +281,14 @@ struct vector_512_scan {
   static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
   static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
 
-  using uint8x64 = GccVec<uint8_t, 64>::T;
-  using uint16x32 = GccVec<uint16_t, 64>::T;
-  using uint32x16 = GccVec<uint32_t, 64>::T;
-  using uint16x32_unaligned = GccVec<uint32_t, 64>::UnalignedT;
+  using uint8x64 = simd::GccVec<uint8_t, 64>::T;
+  using uint16x32 = simd::GccVec<uint16_t, 64>::T;
+  using uint32x16 = simd::GccVec<uint32_t, 64>::T;
+  using uint16x32_unaligned = simd::GccVec<uint32_t, 64>::UnalignedT;
 
   // For our half-lane output.
-  using uint32x8 = GccVec<uint32_t, 32>::T;
-  using uint32x8_unaligned = GccVec<uint32_t, 32>::UnalignedT;
+  using uint32x8 = simd::GccVec<uint32_t, 32>::T;
+  using uint32x8_unaligned = simd::GccVec<uint32_t, 32>::UnalignedT;
 
   // clang-format off
   static constexpr std::array LANE_SHUFFLE_MASKS = {
@@ -312,10 +316,10 @@ struct vector_512_scan {
 
     TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
 
-    uint16x32 lane = shuffle_vector(batch_lane, LANE_SHUFFLE_MASKS[ITER]);
+    uint16x32 lane = simd::shuffle_vector(batch_lane, LANE_SHUFFLE_MASKS[ITER]);
     TRACE_DO(std::cout << "a16 : "; print_lane(&lane););
 
-    auto lane2 = shuffle_vector(reinterpret_cast<uint8x64&>(lane), SHUFFLE_MASK);
+    auto lane2 = simd::shuffle_vector(reinterpret_cast<uint8x64&>(lane), SHUFFLE_MASK);
     TRACE_DO(std::cout << "a4  : "; print_lane(&lane2););
 
     auto lane3 = reinterpret_cast<uint32x16&>(lane2) >> SHIFT_MASK;
@@ -543,7 +547,7 @@ struct x86_128_scan {
 BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
 #endif
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 struct x86_512_scan {
   static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
   static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
