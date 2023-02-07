@@ -62,7 +62,7 @@ struct autovec_scalar_scan {
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     // The naive version should be autovectorizable with clang, but they currently don't do this
     // see https://github.com/llvm/llvm-project/issues/42210
-    // According to the issue, ICX can autovectorize this.
+    // According to the issue, ICC can autovectorize this.
     // Godbolt playground: https://godbolt.org/z/aahTPczdr
 
     const DictEntry* __restrict column_data = column.aligned_data();

@@ -157,6 +157,8 @@ inline VectorT builtin_shuffle_vector(VectorT vec, MaskT mask) {
 // TODO: maybe this is more efficient with a magic multiply (https://zeux.io/2022/09/02/vpexpandb-neon-z3/)
 template <typename MaskT, typename VectorT>
 MaskT gcc_comparison_to_bitmask(VectorT bytemask) {
+  // Works properly for few large elements (https://godbolt.org/z/Eb4KGqvh8)
+  // but gets worse with more small elements (https://godbolt.org/z/b1GhK7nz7)
   using ElementT = std::decay_t<decltype(bytemask[0])>;
   constexpr size_t NUM_ELEMENTS = sizeof(VectorT) / sizeof(ElementT);
   static_assert(sizeof(MaskT) * 8 >= NUM_ELEMENTS, "Number of elements greater than size of mask");
