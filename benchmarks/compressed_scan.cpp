@@ -1,4 +1,5 @@
 #include <array>
+#include <bit>
 #include <bitset>
 #include <cstdint>
 #include <cstring>
@@ -12,11 +13,12 @@
 #include "common.hpp"
 #include "simd.hpp"
 
-// This is the lowest common multiple of 12 and 56. We need 12 for the 128-Bit version and 56 for the 512-Bit one.
-static constexpr uint64_t NUM_BASE_TUPLES = 168;
+// 128-bit vec needs 12 values, 512-bit vec needs 56 values.
+// For autovec, processing 32-element blocks seems reasonable.
+static constexpr uint64_t NUM_BASE_TUPLES = std::lcm(12, std::lcm(56, 32));
 
-// static constexpr uint64_t SCALE_FACTOR = 1;
-static constexpr uint64_t SCALE_FACTOR = 6000;  // With a 168 base, this gives us 1'008'000 tuples.
+static constexpr uint64_t NUM_TARGET_TUPLES = 1'000'000;
+static constexpr uint64_t SCALE_FACTOR = NUM_TARGET_TUPLES / NUM_BASE_TUPLES;
 
 static constexpr uint64_t NUM_TUPLES = NUM_BASE_TUPLES * SCALE_FACTOR;
 static constexpr size_t COMPRESS_BITS = 9;
@@ -159,28 +161,31 @@ BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
 ///////////////////////
 struct autovec_scalar_scan {
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    constexpr size_t U64_BITS = sizeof(uint64_t) * 8;
-    constexpr uint64_t MASK = (1 << COMPRESS_BITS) - 1;
-    uint64_t bits_left = U64_BITS;
+    static_assert(std::endian::native == std::endian::little,
+                  "big-endian systems need extra logic to handle uint64_t boundaries correctly.");
+    const auto* __restrict input_bytes = reinterpret_cast<const std::byte*>(input);
 
-    size_t block_idx = 0;
+    constexpr size_t BATCH_SIZE_NUMBERS = 32;
+    static_assert(9 * BATCH_SIZE_NUMBERS % 8 == 0, "Autovec approach needs a batch to always start byte-aligned");
+    constexpr size_t BATCH_SIZE_BYTES = BATCH_SIZE_NUMBERS * 9 / 8;
 
-    for (size_t i = 0; i < num_tuples; ++i) {
-      const size_t bits_for_current_value = U64_BITS - bits_left;
-      output[i] |= (input[block_idx] >> bits_for_current_value) & MASK;
+    const size_t num_batches = num_tuples / BATCH_SIZE_NUMBERS;
 
-      // Did not get all bits for value, check next block to get them.
-      if (bits_left < COMPRESS_BITS) {
-        // Shift remaining bits to correct position for bit-OR.
-        output[i] |= (input[++block_idx] << bits_left) & MASK;
-        bits_left += U64_BITS;
-      }
+    for (size_t batch = 0; batch < num_batches; ++batch) {
+      const std::byte* __restrict batch_begin = input_bytes + batch * BATCH_SIZE_BYTES;
 
-      bits_left -= COMPRESS_BITS;
+      for (size_t number_in_batch = 0; number_in_batch < BATCH_SIZE_NUMBERS; ++number_in_batch) {
+        const size_t start_bit_in_batch = 9 * number_in_batch;
+        const size_t byte_to_start_copying_from_in_batch = start_bit_in_batch / 8;
+        const size_t leading_garbage_bits = start_bit_in_batch - 8 * byte_to_start_copying_from_in_batch;
 
-      if (bits_left == 0) {
-        block_idx++;
-        bits_left = U64_BITS;
+        uint32_t value = 0;
+        std::memcpy(&value, batch_begin + byte_to_start_copying_from_in_batch, sizeof(value));
+
+        value = value >> leading_garbage_bits;
+        value = value & ((1 << COMPRESS_BITS) - 1);
+
+        output[batch * BATCH_SIZE_NUMBERS + number_in_batch] = value;
       }
     }
   }
@@ -193,10 +198,10 @@ BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
 ///////////////////////
 struct vector_128_scan {
   static constexpr size_t VALUES_PER_ITERATION = 4;
-  static constexpr size_t ITERATIONS_PER_BATCH = (16ul * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
-  static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;
-  static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
-  static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
+  static constexpr size_t ITERATIONS_PER_BATCH = (16ul * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;  // 3
+  static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;            // 12
+  static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;                         // 108
+  static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;                              // 4
 
   using uint8x16 = simd::GccVec<uint8_t, 16>::T;
   using uint8x16_unaligned = simd::GccVec<uint8_t, 16>::UnalignedT;
@@ -204,7 +209,7 @@ struct vector_128_scan {
 
   // Note: the masks are regular, i.e., they are ordered as {0th, 1st, ..., nth}.
   static constexpr std::array SHUFFLE_MASKS = {
-      uint8x16{0, 1, 2, 3, 1, 2, 3, 5, 2, 3, 4, 5, 3, 4, 5, 6},
+      uint8x16{0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6},
       uint8x16{4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10},
       uint8x16{8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14},
   };
@@ -225,9 +230,9 @@ struct vector_128_scan {
     lane = reinterpret_cast<uint32x4&>(lane) << BYTE_ALIGN_MASK;
     TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
 
-    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
-    // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
-    // need to shift by 4 * `iter` to include this shift.
+    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the
+    // fourth by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so
+    // on. So we need to shift by 4 * `iter` to include this shift.
     constexpr int32_t SHIFT = 3 + (ITER * 4) + DANGLING_BITS;
 
     lane = reinterpret_cast<uint32x4&>(lane) >> SHIFT;
@@ -408,9 +413,9 @@ struct neon_scan {
     lane = vshlq_u32(vreinterpretq_s32_u8(lane), BYTE_ALIGN_MASK);
     TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
 
-    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
-    // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
-    // need to shift by 4 * `iter` to include this shift.
+    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the
+    // fourth by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so
+    // on. So we need to shift by 4 * `iter` to include this shift.
     constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
 
     lane = vshrq_n_s32(vreinterpretq_u32_u8(lane), shift);
@@ -492,9 +497,9 @@ struct x86_128_scan {
     lane = _mm_mullo_epi32(lane, byte_align_mask);
     TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
 
-    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the fourth
-    // by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so on. So we
-    // need to shift by 4 * `iter` to include this shift.
+    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the
+    // fourth by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so
+    // on. So we need to shift by 4 * `iter` to include this shift.
     constexpr int32_t SHIFT = 3 + (ITER * 4) + DANGLING_BITS;
 
     lane = _mm_srli_epi32(lane, SHIFT);
