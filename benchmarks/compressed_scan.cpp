@@ -14,7 +14,7 @@
 #include "simd.hpp"
 
 // 128-bit vec needs 12 values, 512-bit vec needs 56 values.
-// For autovec, processing 32-element blocks seems reasonable, but TODO we could also do 12 or 56 element blocks
+// For autovec, processing 32-element blocks seems reasonable.
 static constexpr uint64_t NUM_BASE_TUPLES = std::lcm(12, std::lcm(56, 32));
 
 static constexpr uint64_t NUM_TARGET_TUPLES = 1'000'000;
@@ -160,12 +160,11 @@ BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
 ///    AUTOVEC      ///
 ///////////////////////
 struct autovec_scalar_scan {
-  // TODO: This is a local fix to our broken API -- fix properly.
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    return (*this)(reinterpret_cast<const std::byte*>(input), output, num_tuples);
-  }
+    static_assert(std::endian::native == std::endian::little,
+                  "big-endian systems need extra logic to handle uint64_t boundaries correctly.");
+    const auto* __restrict input_bytes = reinterpret_cast<const std::byte*>(input);
 
-  void operator()(const std::byte* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     constexpr size_t BATCH_SIZE_NUMBERS = 32;
     static_assert(9 * BATCH_SIZE_NUMBERS % 8 == 0, "Autovec approach needs a batch to always start byte-aligned");
     constexpr size_t BATCH_SIZE_BYTES = BATCH_SIZE_NUMBERS * 9 / 8;
@@ -173,15 +172,13 @@ struct autovec_scalar_scan {
     const size_t num_batches = num_tuples / BATCH_SIZE_NUMBERS;
 
     for (size_t batch = 0; batch < num_batches; ++batch) {
-      const std::byte* __restrict batch_begin = input + batch * BATCH_SIZE_BYTES;
+      const std::byte* __restrict batch_begin = input_bytes + batch * BATCH_SIZE_BYTES;
 
       for (size_t number_in_batch = 0; number_in_batch < BATCH_SIZE_NUMBERS; ++number_in_batch) {
         const size_t start_bit_in_batch = 9 * number_in_batch;
         const size_t byte_to_start_copying_from_in_batch = start_bit_in_batch / 8;
         const size_t leading_garbage_bits = start_bit_in_batch - 8 * byte_to_start_copying_from_in_batch;
 
-        static_assert(std::endian::native == std::endian::little,
-                      "big-endian systems need a byteswap here to handle uint64_t boundaries correctly.");
         uint32_t value = 0;
         std::memcpy(&value, batch_begin + byte_to_start_copying_from_in_batch, sizeof(value));
 
