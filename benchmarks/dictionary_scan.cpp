@@ -159,8 +159,9 @@ struct vector_128_scan_add {
   alignas(16) static constexpr std::array<std::array<uint32_t, 4>, 16> MATCHES_TO_ROW_OFFSETS =
       lookup_table_for_compressed_offsets_by_comparison_result<4, uint32_t, 0>();
 
-  // TODO: Check out why this is slower than intel intrinsics. The movemask generation seems to be worse
-  // (essentially boiling down to worse compare-to-bitmask logic)
+  // Haswell is a bit slower here because LLVM generates the comparison and move-to-mask inefficiently, see
+  // https://godbolt.org/z/bzrxb57Kh
+  // This does not occur on more modern architectures.
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     const DictEntry* __restrict column_data = column.aligned_data();
     RowId* __restrict output = matching_rows->aligned_data();
@@ -269,6 +270,9 @@ struct vector_512_scan {
 
       const uint16_t mask = simd::comparison_to_bitmask(matches);
 
+      // On haswell, this doesn't generate proper code. For the shuffle, llvm spills everything to memory 20 times
+      // and then reloads from that: https://godbolt.org/z/b17zaofcq
+      // Looks like something similar happens on ARM: https://godbolt.org/z/TGezGG8q1
       static_assert(NUM_MATCHES_PER_VECTOR == 16);
       ShuffleMask16Elements shuffle_mask;
       if constexpr (STRATEGY == Vector512ScanStrategy::SHUFFLE_MASK_16_BIT) {
