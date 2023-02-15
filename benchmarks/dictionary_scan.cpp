@@ -254,7 +254,6 @@ struct vector_512_scan {
     const auto& lo_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[lo_mask];
     const auto& hi_shuffle_mask = MATCHES_TO_SHUFFLE_MASK_8_BIT[hi_mask];
 
-    // TODO: 0-initialization is weird here, we'd want all elements to be SDC?
     alignas(64) std::array<ShuffleVecElementT, 16> combined_mask{0};
     std::memcpy(combined_mask.data(), lo_shuffle_mask.data(), sizeof(lo_shuffle_mask));
 
@@ -636,7 +635,6 @@ struct x86_512_scan {
       const __m512i rows_to_match = _mm512_load_epi32(rows + chunk_start_row);
       const __mmask16 matches = _mm512_cmplt_epi32_mask(rows_to_match, filter_vec);
 
-      // TODO is there any reason why we would use compress plus store over compressstore?
       if constexpr (STRATEGY == X86512ScanStrategy::COMPRESSSTORE) {
         _mm512_mask_compressstoreu_epi32(output + num_matching_rows, matches, row_ids);
       } else {
