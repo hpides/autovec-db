@@ -170,15 +170,15 @@ struct autovec_scalar_scan {
     static_assert(9 * BATCH_SIZE_NUMBERS % 8 == 0, "Autovec approach needs a batch to always start byte-aligned");
     constexpr size_t BATCH_SIZE_BYTES = BATCH_SIZE_NUMBERS * 9 / 8;
 
-    size_t num_batches = num_tuples / BATCH_SIZE_NUMBERS;
+    const size_t num_batches = num_tuples / BATCH_SIZE_NUMBERS;
 
     for (size_t batch = 0; batch < num_batches; ++batch) {
       const std::byte* __restrict batch_begin = input + batch * BATCH_SIZE_BYTES;
 
       for (size_t number_in_batch = 0; number_in_batch < BATCH_SIZE_NUMBERS; ++number_in_batch) {
-        size_t start_bit_in_batch = 9 * number_in_batch;
-        size_t byte_to_start_copying_from_in_batch = start_bit_in_batch / 8;
-        size_t leading_garbage_bits = start_bit_in_batch - 8 * byte_to_start_copying_from_in_batch;
+        const size_t start_bit_in_batch = 9 * number_in_batch;
+        const size_t byte_to_start_copying_from_in_batch = start_bit_in_batch / 8;
+        const size_t leading_garbage_bits = start_bit_in_batch - 8 * byte_to_start_copying_from_in_batch;
 
         static_assert(std::endian::native == std::endian::little,
                       "big-endian systems need a byteswap here to handle uint64_t boundaries correctly.");
