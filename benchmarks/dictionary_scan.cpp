@@ -347,14 +347,13 @@ struct neon_scan {
       const DictVec rows_to_match = vld1q_u32(rows + chunk_start_row);
       const DictVec matches = vcltq_u32(rows_to_match, filter_vec);
 
-      // TODO: if constexpr shuffle strategy
+      // TODO: if constexpr shuffle strategy (we also want an ADD version like for vector_128)
 
       constexpr DictVec BIT_MASK = {1, 2, 4, 8};
       const uint8_t mask = vaddvq_u32(vandq_u32(matches, BIT_MASK));
       assert(mask >> 4 == 0 && "High 4 bits must be 0");
 
       const auto* shuffle_mask = reinterpret_cast<const uint8x16_t*>(MATCHES_TO_SHUFFLE_MASK[mask].data());
-      // TODO: check if we can do this differently with: vqtbx1q_u8
       const RowVec compressed_rows = vqtbl1q_u8(row_ids, *shuffle_mask);
       vst1q_u32(output + num_matching_rows, compressed_rows);
       num_matching_rows += std::popcount(mask);
