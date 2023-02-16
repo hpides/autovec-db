@@ -353,9 +353,9 @@ struct neon_scan {
       const uint8_t mask = vaddvq_u32(vandq_u32(matches, BIT_MASK));
       assert(mask >> 4 == 0 && "High 4 bits must be 0");
 
-      const uint8x16_t shuffle_mask = MATCHES_TO_SHUFFLE_MASK[mask];
+      const auto* shuffle_mask = reinterpret_cast<const uint8x16_t*>(MATCHES_TO_SHUFFLE_MASK[mask].data());
       // TODO: check if we can do this differently with: vqtbx1q_u8
-      const RowVec compressed_rows = vqtbl1q_u8(row_ids, shuffle_mask);
+      const RowVec compressed_rows = vqtbl1q_u8(row_ids, *shuffle_mask);
       vst1q_u32(output + num_matching_rows, compressed_rows);
       num_matching_rows += std::popcount(mask);
     }
