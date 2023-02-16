@@ -236,9 +236,7 @@ struct vector_512_scan {
   static constexpr ShuffleVecElementT SDC = -1;  // SDC == SHUFFLE_DONT_CARE
 
   ShuffleMask16Elements get_shuffle_mask_from_16bit(uint16_t mask) {
-    // TODO: currently not constexpr because we hit compiler constant evaluation limits
-    // Check if increasing the limits and making it constexpr gives any benefit.
-    alignas(64) static auto MATCHES_TO_SHUFFLE_MASK_16_BIT =
+    alignas(64) constexpr auto MATCHES_TO_SHUFFLE_MASK_16_BIT =
         lookup_table_for_compressed_offsets_by_comparison_result<16, ShuffleVecElementT, SDC>();
 
     return simd::load<ShuffleMask16Elements>(MATCHES_TO_SHUFFLE_MASK_16_BIT[mask].data());

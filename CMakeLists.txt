@@ -34,7 +34,13 @@ else()
 endif()
 
 # We need this to to reinterpret_casts of GCC vector types.
-add_compile_options(-flax-vector-conversions)
+add_compile_options("-flax-vector-conversions")
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+  add_compile_options("-fconstexpr-ops-limit=90000000")
+else()
+  add_compile_options("-fconstexpr-steps=14000000")
+endif()
 
 ##################### Google Benchmark ####################
 include(FetchContent)
