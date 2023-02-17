@@ -154,7 +154,6 @@ inline VectorT builtin_shuffle_vector(VectorT vec, MaskT mask) {
 #endif
 }
 
-// TODO: maybe this is more efficient with a magic multiply (https://zeux.io/2022/09/02/vpexpandb-neon-z3/)
 template <typename MaskT, typename VectorT>
 MaskT gcc_comparison_to_bitmask(VectorT bytemask) {
   // Works properly for few large elements (https://godbolt.org/z/Eb4KGqvh8)
