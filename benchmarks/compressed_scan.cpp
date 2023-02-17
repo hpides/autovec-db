@@ -551,7 +551,7 @@ struct x86_128_scan {
 
 BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
 
-struct x86_128_pdep_scan {
+struct x86_pdep_scan {
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     const auto* __restrict input_bytes = reinterpret_cast<const std::byte*>(input);
 
@@ -580,7 +580,7 @@ struct x86_128_pdep_scan {
   }
 };
 
-BENCHMARK(BM_scanning<x86_128_pdep_scan>)->BM_ARGS;
+BENCHMARK(BM_scanning<x86_pdep_scan>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
