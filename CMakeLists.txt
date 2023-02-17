@@ -34,7 +34,13 @@ else()
 endif()
 
 # We need this to to reinterpret_casts of GCC vector types.
-add_compile_options(-flax-vector-conversions)
+add_compile_options("-flax-vector-conversions")
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+  add_compile_options("-fconstexpr-ops-limit=90000000")
+else()
+  add_compile_options("-fconstexpr-steps=30000000")
+endif()
 
 ##################### Google Benchmark ####################
 include(FetchContent)
@@ -64,6 +70,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   list(APPEND WARNING_OPTIONS "-Wdocumentation" "-Wconditional-uninitialized" "-Wundef" "-Wunused-exception-parameter" "-Wunused-member-function")
   list(APPEND WARNING_OPTIONS "-Wno-gnu-zero-variadic-macro-arguments") # legal in c++20
   list(APPEND WARNING_OPTIONS "-Wshadow-all" "-Wno-shadow-field-in-constructor")
+  list(APPEND WARNING_OPTIONS "-Wno-gnu-line-marker") # We don't care about this, but it pops up if we use "--save-temps" with clang.
 endif()
 
 ##### COMPILE COMMANDS #####
@@ -80,9 +87,13 @@ function(add_benchmark bm_name)
   add_executable(${bm_name} ${AUTOVEC_SOURCE_DIR}/${bm_name}.cpp)
   target_link_libraries(${bm_name} PRIVATE autovec_includes benchmark)
   target_compile_options(${bm_name} PRIVATE "${WARNING_OPTIONS}")
+
+  # Keep the temporary files so we can inspect the generated assembly.
+  target_compile_options(${bm_name} PRIVATE "-save-temps=obj" "-fverbose-asm")
 endfunction()
 
+add_benchmark(compare_to_bitmask)
 add_benchmark(compressed_scan)
+add_benchmark(dictionary_scan)
 add_benchmark(hash_bucket)
 add_benchmark(hashing)
-add_benchmark(compare_to_bitmask)

@@ -70,3 +70,9 @@ jobs:
         shell: bash
         if: ${{ always() && steps.build.conclusion == 'success' }}
         run: ./compare_to_bitmask
+
+      - name: Run Dictionary Scan Benchmark
+        working-directory: ${{github.workspace}}/build
+        shell: bash
+        if: ${{ always() && steps.build.conclusion == 'success' }}
+        run: ./dictionary_scan
