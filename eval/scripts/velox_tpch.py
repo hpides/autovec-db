@@ -19,19 +19,23 @@ def plot_velox_tpch(ax, compiler_results, xsimd_results):
     ax.set_ylabel("Runtime in ms")
     ax.set_xlabel("TPCH Query")
 
-    Y_LIM = 210
+    Y_LIM = 275
     ax.set_ylim(0, Y_LIM)
     ax.set_yticks(range(0, Y_LIM, 50))
 
     def add_slow_text(pos):
         text_args = {'rotation': 90, 'ha': 'center', 'va': 'top',
                      'bbox': {'facecolor': 'white', 'edgecolor': 'white', 'pad': 0}}
-        ax.text(pos + 0.6, Y_LIM, int(results.iloc[pos]['vec']), **text_args)
-        ax.text(pos - 0.6, Y_LIM, int(results.iloc[pos]['xsimd']), **text_args)
+        if int(results.iloc[pos]['vec']) > Y_LIM:
+            ax.text(pos - 0.6, Y_LIM, int(results.iloc[pos]['vec']), **text_args)
+            ax.text(pos + 0.6, Y_LIM, int(results.iloc[pos]['xsimd']), **text_args)
 
     # Q13 and Q21 are too slow for plot. Show runtime explicitly.
-    add_slow_text(4)  # Q13
-    add_slow_text(12) # Q21
+    for q in range(len(results)):
+        add_slow_text(q)
+    # add_slow_text(4)  # Q13
+    # add_slow_text(9)  # Q18
+    # add_slow_text(12) # Q21
 
 
 if __name__ == '__main__':
