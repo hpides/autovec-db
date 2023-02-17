@@ -568,13 +568,14 @@ struct x86_128_pdep_scan {
       uint64_t upper_byte = 0;
       std::memcpy(&upper_byte, input_bytes + read_start_byte + 8, 1);
 
-      // TODO: Wrong alignment is UB here
-      *reinterpret_cast<uint64_t*>(output + tuple_index) = _pdep_u64(lower_8_bytes, PDEP_STORE_MASK);
-      *reinterpret_cast<uint64_t*>(output + tuple_index + 2) = _pdep_u64(lower_8_bytes >> (2 * 9), PDEP_STORE_MASK);
-      *reinterpret_cast<uint64_t*>(output + tuple_index + 4) = _pdep_u64(lower_8_bytes >> (4 * 9), PDEP_STORE_MASK);
+      std::array<uint64_t, 4> decompressed_values{};
+      decompressed_values[0] = _pdep_u64(lower_8_bytes >> (0 * 9), PDEP_STORE_MASK);
+      decompressed_values[1] = _pdep_u64(lower_8_bytes >> (2 * 9), PDEP_STORE_MASK);
+      decompressed_values[2] = _pdep_u64(lower_8_bytes >> (4 * 9), PDEP_STORE_MASK);
       // 6*9=54, so we have 64-54=10 bits left in lower_8_bytes, and we need to "append" the 8 bits of the next byte
-      *reinterpret_cast<uint64_t*>(output + tuple_index + 6) =
-          _pdep_u64(lower_8_bytes >> (6 * 9) | (upper_byte << (64 - 6 * 9)), PDEP_STORE_MASK);
+      decompressed_values[3] = _pdep_u64(lower_8_bytes >> (6 * 9) | (upper_byte << (64 - 6 * 9)), PDEP_STORE_MASK);
+
+      std::memcpy(output + tuple_index, decompressed_values.data(), sizeof(decompressed_values));
     }
   }
 };
