@@ -10,10 +10,6 @@
 
 #define BM_ARGS Arg(27)
 
-// TODO(lawben): Check which number here makes sense. We need: #keys / (#vector-lanes / 8B key) registers.
-//                 --> 128 keys = 16 zmm | 32 ymm | 64 xmm registers
-//                 -->  64 keys =  8 zmm | 16 ymm | 32 xmm registers
-//               This will impact if the compiler can unroll the loop or not.
 static constexpr uint64_t NUM_KEYS = 64;
 
 // Not yet consistently used.
@@ -138,11 +134,9 @@ struct vector_hash {
 BENCHMARK(BM_hashing<vector_hash<64>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<128>>)->BM_ARGS;
 
-// TODO: figure out why these are so fast
-// Richard: On x86, clang generates different code for the 64-bit multiplication
-// that is ~20% faster. I'd guess it's due to microarchitecture insight?
-// Should we give this as a win to clang? If we were using agner fogs library,
-// we wouldn't get that performance.
+// On x86, clang generates different code for the 64-bit multiplication that is ~20% faster. I'd guess it's due to
+// microarchitecture insight?  Should we give this as a win to clang? If we were using agner fogs library, we wouldn't
+// get that performance.
 BENCHMARK(BM_hashing<vector_hash<256>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<512>>)->BM_ARGS;
 

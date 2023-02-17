@@ -7,13 +7,6 @@
 #include "common.hpp"
 #include "simd.hpp"
 
-// TODO: We commonly use DefaultMaskT, which uses small unsigned types (uint8 / uint16), and then build up a result
-// on that type (e.g. by OR-ing together subresults). In theory, overflows must cause modulo-results, so this
-// might cause worse code generation than just using uint64_t. We can't use int64_t, as overflow due to signed
-// operations is UB here.
-// With x86_128, I've seen slighly better code generation by clang if the intermediate result is uint64_t
-// (using LEA [reg1 + N * reg2] instead of shift+or)
-
 template <typename SubresultFunc, typename InputT>
 auto create_bitmask_using_subresults(const InputT& input1, const InputT& input2) {
   SubresultFunc subresult_func;
