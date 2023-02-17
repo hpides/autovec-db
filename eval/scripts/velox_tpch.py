@@ -30,12 +30,10 @@ def plot_velox_tpch(ax, compiler_results, xsimd_results):
             ax.text(pos - 0.6, Y_LIM, int(results.iloc[pos]['vec']), **text_args)
             ax.text(pos + 0.6, Y_LIM, int(results.iloc[pos]['xsimd']), **text_args)
 
-    # Q13 and Q21 are too slow for plot. Show runtime explicitly.
-    for q in range(len(results)):
-        add_slow_text(q)
-    # add_slow_text(4)  # Q13
-    # add_slow_text(9)  # Q18
-    # add_slow_text(12) # Q21
+    # Some queries are too slow for the plot y-axis limit. Show runtime explicitly.
+    for query in range(len(results)):
+        add_slow_text(query)
+
 
 
 if __name__ == '__main__':
@@ -62,7 +60,10 @@ if __name__ == '__main__':
     x86_ax.set_title("a) x86")
     m1_ax.set_title("b) M1")
 
-    FIG_LEGEND(fig)
+    handles, labels = x86_ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.05), ncol=2,
+               frameon=False, columnspacing=1, handletextpad=0.3)
+    fig.tight_layout()
 
     for ax in axes:
         Y_GRID(ax)
