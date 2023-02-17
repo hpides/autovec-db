@@ -11,7 +11,7 @@ def plot_hashing(ax, data):
         ax.bar(variant, scalar_perf / row['runtime'], **BAR(variant))
 
     ax.tick_params(axis='x', which=u'both', length=0)
-    ax.set_xticks(range(len(data['name'])))
+    ax.set_xticks(range(len(data)))
     ax.set_xticklabels(data['name'], rotation=75)
     ALIGN_ROTATED_X_LABELS(ax)
 
@@ -19,7 +19,7 @@ def plot_hashing(ax, data):
 if __name__ == '__main__':
     result_path, plot_dir = INIT(sys.argv)
 
-    x86_results = get_results(result_path, "hashing_x86.csv")
+    x86_results = get_results(result_path, "hashing_x86_cascadelake.csv")
     x86_results = clean_up_results(x86_results, "hash")
 
     m1_results = get_results(result_path, "hashing_m1.csv")
