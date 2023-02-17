@@ -347,8 +347,6 @@ struct neon_scan {
       const DictVec rows_to_match = vld1q_u32(rows + chunk_start_row);
       const DictVec matches = vcltq_u32(rows_to_match, filter_vec);
 
-      // TODO: if constexpr shuffle strategy (we also want an ADD version like for vector_128)
-
       constexpr DictVec BIT_MASK = {1, 2, 4, 8};
       const uint8_t mask = vaddvq_u32(vandq_u32(matches, BIT_MASK));
       assert(mask >> 4 == 0 && "High 4 bits must be 0");
