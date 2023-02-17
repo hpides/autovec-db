@@ -39,7 +39,7 @@ add_compile_options("-flax-vector-conversions")
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
   add_compile_options("-fconstexpr-ops-limit=90000000")
 else()
-  add_compile_options("-fconstexpr-steps=14000000")
+  add_compile_options("-fconstexpr-steps=30000000")
 endif()
 
 ##################### Google Benchmark ####################
