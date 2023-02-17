@@ -19,20 +19,20 @@ auto create_bitmask_using_subresults(const InputT& input1, const InputT& input2)
     return subresult_func(*input1_vec, *input2_vec);
   } else {
     static_assert(sizeof(InputT) % VECTOR_BYTES == 0);
-    constexpr size_t iterations = sizeof(InputT) / VECTOR_BYTES;
+    constexpr size_t ITERATIONS = sizeof(InputT) / VECTOR_BYTES;
 
     using MaskT = decltype(subresult_func(input1_vec[0], input2_vec[0]));
     constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_BYTES / sizeof(typename InputT::DataT);
 
     MaskT result = 0;
-    for (size_t i = 0; i < iterations; ++i) {
-      MaskT sub_mask = subresult_func(input1_vec[i], input2_vec[i]);
+    for (size_t i = 0; i < ITERATIONS; ++i) {
+      const MaskT sub_mask = subresult_func(input1_vec[i], input2_vec[i]);
 
       // sub mask can only have its NUM_VECTOR_ELEMENTS least significant bits set.
       assert(static_cast<unsigned int>(std::countl_zero(sub_mask)) >= 8 * sizeof(MaskT) - NUM_VECTOR_ELEMENTS);
 
       const size_t offset = i * NUM_VECTOR_ELEMENTS;
-      result |= sub_mask << offset;
+      result |= static_cast<MaskT>(sub_mask << offset);
     }
     return result;
   }
@@ -54,13 +54,13 @@ struct naive_scalar_bitmask {
     const auto* __restrict input1_typed = input1.data();
     const auto* __restrict input2_typed = input2.data();
 
-    constexpr size_t iterations = sizeof(InputT) / sizeof(typename InputT::DataT);
+    constexpr size_t ITERATIONS = sizeof(InputT) / sizeof(typename InputT::DataT);
 
     MaskT result = 0;
 #if CLANG_COMPILER
 #pragma clang loop vectorize(disable)
 #endif
-    for (size_t i = 0; i < iterations; ++i) {
+    for (size_t i = 0; i < ITERATIONS; ++i) {
       if (input1_typed[i] == input2_typed[i]) {
         result |= 1ull << i;
       }
@@ -81,15 +81,35 @@ struct autovec_scalar_bitmask {
     const auto* __restrict input1_typed = input1.data();
     const auto* __restrict input2_typed = input2.data();
 
-    constexpr size_t iterations = sizeof(InputT) / sizeof(typename InputT::DataT);
+    constexpr size_t ITERATIONS = sizeof(InputT) / sizeof(typename InputT::DataT);
 
     MaskT result = 0;
-    for (size_t i = 0; i < iterations; ++i) {
+    for (size_t i = 0; i < ITERATIONS; ++i) {
       if (input1_typed[i] == input2_typed[i]) {
         result |= 1ull << i;
       }
     }
     return result;
+  }
+};
+
+template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
+struct bitset_bitmask {
+  using MaskT = MaskT_;
+  using InputT = InputT_;
+  using ElementT = typename InputT::DataT;
+
+  MaskT operator()(const InputT& input1, const InputT& input2) {
+    const auto* __restrict input1_typed = input1.data();
+    const auto* __restrict input2_typed = input2.data();
+
+    constexpr size_t ITERATIONS = sizeof(InputT) / sizeof(ElementT);
+
+    std::bitset<sizeof(MaskT) * 8> result;
+    for (size_t i = 0; i < ITERATIONS; ++i) {
+      result[i] = input1_typed[i] == input2_typed[i];
+    }
+    return result.to_ullong();
   }
 };
 
@@ -108,7 +128,7 @@ struct clang_vector_bitmask {
 
   using SingleComparisonResultT = typename UnsignedInt<sizeof(MaskVecT)>::T;
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
@@ -121,11 +141,11 @@ struct clang_vector_bitmask {
       // This does not occur if avx512 is available, which can compare and store the result in a mask register in one
       // instruction, see https://godbolt.org/z/efe8d61Gz.
       // This could be considered a performance bug in clang
-      MaskVecT subresult_vec = __builtin_convertvector(subinput1 == subinput2, MaskVecT);
-      MaskT subresult = reinterpret_cast<SingleComparisonResultT&>(subresult_vec);
+      const MaskVecT subresult_vec = __builtin_convertvector(subinput1 == subinput2, MaskVecT);
+      const MaskT subresult = reinterpret_cast<const SingleComparisonResultT&>(subresult_vec);
 
       if constexpr (NUM_VECTOR_ELEMENTS != 8 * sizeof(SingleComparisonResultT)) {
-        subresult &= (1 << NUM_VECTOR_ELEMENTS) - 1;
+        return subresult & ((1ull << NUM_VECTOR_ELEMENTS) - 1);
       }
 
       return subresult;
@@ -133,7 +153,7 @@ struct clang_vector_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 
@@ -144,28 +164,8 @@ struct sized_clang_vector_bitmask {
 };
 #endif
 
-template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
-struct bitset_bitmask {
-  using MaskT = MaskT_;
-  using InputT = InputT_;
-  using ElementT = typename InputT::DataT;
-
-  MaskT operator()(const InputT& input1, const InputT& input2) {
-    const auto* __restrict input1_typed = input1.data();
-    const auto* __restrict input2_typed = input2.data();
-
-    constexpr size_t iterations = sizeof(InputT) / sizeof(ElementT);
-
-    std::bitset<sizeof(MaskT) * 8> result;
-    for (size_t i = 0; i < iterations; ++i) {
-      result[i] = input1_typed[i] == input2_typed[i];
-    }
-    return result.to_ullong();
-  }
-};
-
 template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
-struct gcc_vector_bitmask {
+struct gcc_vector_naive_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
   using ElementT = typename InputT::DataT;
@@ -175,7 +175,7 @@ struct gcc_vector_bitmask {
 
   using VecT = typename simd::GccVec<ElementT, VECTOR_BYTES>::T;
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
@@ -187,7 +187,7 @@ struct gcc_vector_bitmask {
       // platform-specific intrinsics. However, this pessimizes optimizations of multiple vector operations: Clang can
       // optimize
       // __builtin_convertvector(a == b, boolvector) into a single instruction, the GCC approach wouldn't do that.
-      auto subresult_bool_vec = subinput1 == subinput2;
+      const VecT subresult_bool_vec = subinput1 == subinput2;
       MaskT result = 0;
       for (size_t i = 0; i < NUM_VECTOR_ELEMENTS; ++i) {
         result |= subresult_bool_vec[i] ? 1ull << i : 0;
@@ -197,13 +197,61 @@ struct gcc_vector_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 template <size_t VECTOR_BITS>
-struct sized_gcc_vector_bitmask {
+struct sized_gcc_vector_naive_bitmask {
   template <typename InputT_>
-  using Benchmark = gcc_vector_bitmask<VECTOR_BITS, InputT_>;
+  using Benchmark = gcc_vector_naive_bitmask<VECTOR_BITS, InputT_>;
+};
+
+// Produces e.g. {1, 2, 4, 8} for (uint64x4) or {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128} for uint8x16
+template <typename VecT, std::unsigned_integral ElementT>
+VecT positional_single_bit_mask() {
+  VecT result{};
+
+  constexpr size_t VECTOR_ELEMENTS = sizeof(VecT) / sizeof(ElementT);
+
+  ElementT current_value = 1;
+  for (size_t i = 0; i < VECTOR_ELEMENTS; ++i) {
+    result[i] = current_value;
+    if (current_value <= std::numeric_limits<ElementT>::max() / 2) {
+      current_value *= 2;
+    } else {
+      current_value = 1;
+    }
+  }
+
+  return result;
+}
+
+template <size_t VECTOR_BITS, typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
+struct gcc_vector_custom_bitmask {
+  using MaskT = MaskT_;
+  using InputT = InputT_;
+  using ElementT = typename InputT::DataT;
+
+  static constexpr size_t VECTOR_BYTES = VECTOR_BITS / 8;
+  using VecT = typename simd::GccVec<ElementT, VECTOR_BYTES>::T;
+
+  struct GetSubresultMask {
+    using InputT = VecT;
+
+    MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
+      const VecT subresult_bool_vec = subinput1 == subinput2;
+      return simd::detail::gcc_comparison_to_bitmask<MaskT>(subresult_bool_vec);
+    }
+  };
+
+  MaskT operator()(const InputT& input1, const InputT& input2) {
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
+  }
+};
+template <size_t VECTOR_BITS>
+struct sized_gcc_vector_custom_bitmask {
+  template <typename InputT_>
+  using Benchmark = gcc_vector_custom_bitmask<VECTOR_BITS, InputT_>;
 };
 
 #if defined(__aarch64__)
@@ -215,7 +263,7 @@ struct neon_bitmask {
 
   using VecT = typename simd::NeonVecT<sizeof(ElementT)>::T;
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
@@ -244,7 +292,7 @@ struct neon_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 #endif
@@ -261,11 +309,11 @@ struct x86_128_bitmask {
   using VecT = __m128i;
   static constexpr size_t NUM_VECTOR_ELEMENTS = sizeof(VecT) / sizeof(ElementT);
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
-      VecT vector_compare_result = [&]() {
+      const VecT vector_compare_result = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
           return _mm_cmpeq_epi8(subinput1, subinput2);
         } else if constexpr (sizeof(ElementT) == 2) {
@@ -277,7 +325,7 @@ struct x86_128_bitmask {
         }
       }();
 
-      MaskT subresult = [&]() {
+      const MaskT subresult = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
           return _mm_movemask_epi8(vector_compare_result);
         } else if constexpr (sizeof(ElementT) == 2) {
@@ -285,8 +333,9 @@ struct x86_128_bitmask {
 
           // The comparison result is two bytes, either 0xffff or 0x0000. We just need one byte out of that.
           // Move all lower halves of the 2B elements to the bytes (0, 8), clears upper bytes.
-          __m128i lower_byte_shuffle_mask = _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0);
-          __m128i lower_bytes_shuffled = _mm_shuffle_epi8(vector_compare_result, lower_byte_shuffle_mask);
+          const __m128i lower_byte_shuffle_mask =
+              _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0);
+          const __m128i lower_bytes_shuffled = _mm_shuffle_epi8(vector_compare_result, lower_byte_shuffle_mask);
           return _mm_movemask_epi8(lower_bytes_shuffled);
         } else if constexpr (sizeof(ElementT) == 4) {
           return _mm_movemask_ps(reinterpret_cast<__m128>(vector_compare_result));
@@ -301,7 +350,7 @@ struct x86_128_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 
@@ -319,11 +368,11 @@ struct x86_256_avx2_bitmask {
   using VecT = __m256i;
   static constexpr size_t NUM_VECTOR_ELEMENTS = sizeof(VecT) / sizeof(ElementT);
 
-  struct GetSubresulMask {
+  struct GetSubresultMask {
     using InputT = VecT;
 
     MaskT operator()(const InputT& subinput1, const InputT& subinput2) {
-      VecT vector_compare_result = [&]() {
+      const VecT vector_compare_result = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
           return _mm256_cmpeq_epi8(subinput1, subinput2);
         } else if constexpr (sizeof(ElementT) == 2) {
@@ -335,13 +384,18 @@ struct x86_256_avx2_bitmask {
         }
       }();
 
-      MaskT subresult = [&]() {
+      const MaskT subresult = [&]() {
         if constexpr (sizeof(ElementT) == 1) {
           // cast to unsigned is necessary because otherwise the widening will be sign-expanding, filling in 1-bits
           return static_cast<uint32_t>(_mm256_movemask_epi8(vector_compare_result));
         } else if constexpr (sizeof(ElementT) == 2) {
-          // TODO: On i5-6200U, the clang-vector-variant is slightly faster (extract to XMM, 2 vpacksswb, 2 movmsk, 1
-          // shift, 1 or).
+#if 1
+          // This is what clang generates for the vector<256> variant, it's ~12% faster than the version below
+          const __m128i lower_half = _mm256_extracti128_si256(vector_compare_result, 0);
+          const __m128i upper_half = _mm256_extracti128_si256(vector_compare_result, 1);
+          const __m128i comparison_packed_to_bytes = _mm_packs_epi16(lower_half, upper_half);
+          return _mm_movemask_epi8(comparison_packed_to_bytes);
+#else
           // avx2 shuffle is super weird: You can only shuffle within a lane, indices are within the current lane.
           __m256i lower_byte_shuffle_mask = _mm256_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0,
                                                             -1, -1, -1, -1, -1, -1, -1, -1, 14, 12, 10, 8, 6, 4, 2, 0);
@@ -351,6 +405,7 @@ struct x86_256_avx2_bitmask {
           // 0b00000000 11011001 00000000 11011111
           uint16_t result = two_half_results | (two_half_results >> 8);
           return result;
+#endif
         } else if constexpr (sizeof(ElementT) == 4) {
           return _mm256_movemask_ps(reinterpret_cast<__m256>(vector_compare_result));
         } else if constexpr (sizeof(ElementT) == 8) {
@@ -364,7 +419,7 @@ struct x86_256_avx2_bitmask {
   };
 
   MaskT operator()(const InputT& input1, const InputT& input2) {
-    return create_bitmask_using_subresults<GetSubresulMask>(input1, input2);
+    return create_bitmask_using_subresults<GetSubresultMask>(input1, input2);
   }
 };
 
@@ -404,12 +459,12 @@ void BM_compare_to_bitmask(benchmark::State& state) {
   InputT input2;
 
   std::mt19937_64 rng{std::random_device{}()};
-  for (auto& value : input1.arr) {
+  for (auto& value : input1) {
     value = rng();
   }
 
   input2 = input1;
-  for (auto& value : input2.arr) {
+  for (auto& value : input2) {
     if (rng() % 2 == 0) {
       value = rng();
     }
@@ -434,6 +489,9 @@ void BM_compare_to_bitmask(benchmark::State& state) {
     const auto result = bench_fn(input1, input2);
     benchmark::DoNotOptimize(result);
   }
+
+  state.counters["PerValue"] =
+      benchmark::Counter(state.iterations() * input1.size(), benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 using Input_64B_as_64x1B = AlignedArray<uint8_t, 64, 64>;
@@ -448,6 +506,7 @@ using Input_16B_as_2x8B = AlignedArray<uint64_t, 2, 16>;
 
 #define BM_ARGS Unit(benchmark::kNanosecond)
 
+// NOLINTBEGIN(bugprone-macro-parentheses): `bm` is a template here, we can't put it in parentheses
 #define BENCHMARK_WITH_64B_INPUT(bm)                                 \
   BENCHMARK(BM_compare_to_bitmask<bm<Input_64B_as_64x1B>>)->BM_ARGS; \
   BENCHMARK(BM_compare_to_bitmask<bm<Input_64B_as_32x2B>>)->BM_ARGS; \
@@ -459,6 +518,7 @@ using Input_16B_as_2x8B = AlignedArray<uint64_t, 2, 16>;
   BENCHMARK(BM_compare_to_bitmask<bm<Input_16B_as_8x2B>>)->BM_ARGS;  \
   BENCHMARK(BM_compare_to_bitmask<bm<Input_16B_as_4x4B>>)->BM_ARGS;  \
   BENCHMARK(BM_compare_to_bitmask<bm<Input_16B_as_2x8B>>)->BM_ARGS
+// NOLINTEND(bugprone-macro-parentheses)
 
 /////////////////////////
 ///   16 Byte Input   ///
@@ -466,7 +526,8 @@ using Input_16B_as_2x8B = AlignedArray<uint64_t, 2, 16>;
 BENCHMARK_WITH_16B_INPUT(naive_scalar_bitmask);
 BENCHMARK_WITH_16B_INPUT(autovec_scalar_bitmask);
 BENCHMARK_WITH_16B_INPUT(bitset_bitmask);
-BENCHMARK_WITH_16B_INPUT(sized_gcc_vector_bitmask<128>::Benchmark);
+BENCHMARK_WITH_16B_INPUT(sized_gcc_vector_naive_bitmask<128>::Benchmark);
+BENCHMARK_WITH_16B_INPUT(sized_gcc_vector_custom_bitmask<128>::Benchmark);
 
 #if CLANG_COMPILER
 BENCHMARK_WITH_16B_INPUT(sized_clang_vector_bitmask<128>::Benchmark);
@@ -486,9 +547,12 @@ BENCHMARK_WITH_16B_INPUT(x86_128_bitmask);
 BENCHMARK_WITH_64B_INPUT(naive_scalar_bitmask);
 BENCHMARK_WITH_64B_INPUT(autovec_scalar_bitmask);
 BENCHMARK_WITH_64B_INPUT(bitset_bitmask);
-BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_bitmask<128>::Benchmark);
-BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_bitmask<256>::Benchmark);
-BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_bitmask<512>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_naive_bitmask<128>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_naive_bitmask<256>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_naive_bitmask<512>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_custom_bitmask<128>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_custom_bitmask<256>::Benchmark);
+BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_custom_bitmask<512>::Benchmark);
 
 #if CLANG_COMPILER
 BENCHMARK_WITH_64B_INPUT(sized_clang_vector_bitmask<128>::Benchmark);

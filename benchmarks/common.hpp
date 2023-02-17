@@ -53,29 +53,36 @@ struct alignas(ALIGN) AlignedArray {
   using DataT = DataT_;
   static constexpr size_t NUM_ENTRIES = NUM_ENTRIES_;
 
-  // We want to use an empty custom constructor here to avoid zeroing the array when creating an AlignedArray.
-  AlignedArray() {}
+  AlignedArray() = default;
 
-  std::array<DataT, NUM_ENTRIES> arr;
+  auto begin() noexcept { return array_.begin(); }
+  auto end() noexcept { return array_.end(); }
 
-  DataT* data() noexcept { return arr.data(); }
-  const DataT* data() const noexcept { return arr.data(); }
-  DataT& operator[](size_t i) noexcept { return arr[i]; }
-  const DataT& operator[](size_t i) const noexcept { return arr[i]; }
+  [[nodiscard]] DataT* data() noexcept { return array_.data(); }
+  [[nodiscard]] const DataT* data() const noexcept { return array_.data(); }
+  [[nodiscard]] DataT& operator[](size_t index) noexcept { return array_[index]; }
+  [[nodiscard]] const DataT& operator[](size_t index) const noexcept { return array_[index]; }
+
+  [[nodiscard]] size_t size() const noexcept { return array_.size(); }
 
   auto operator<=>(const AlignedArray& other) const = default;
+
+ private:
+  std::array<DataT, NUM_ENTRIES> array_;
 };
 
 template <typename T, size_t ALIGN>
 struct AlignedData {
-  explicit AlignedData(size_t num_entries) : data{static_cast<T*>(std::aligned_alloc(ALIGN, num_entries * sizeof(T)))} {
-    if (data == nullptr) {
+  explicit AlignedData(size_t num_entries)
+      : data_{static_cast<T*>(std::aligned_alloc(ALIGN, num_entries * sizeof(T)))} {
+    if (data_ == nullptr) {
+      // NOLINTNEXTLINE(concurrency-mt-unsafe): Our benchmarks run single-threaded
       throw std::runtime_error{"Could not allocate memory. " + std::string{std::strerror(errno)}};
     }
-    std::memset(data, 0, num_entries * sizeof(T));
+    std::memset(data_, 0, num_entries * sizeof(T));
   }
 
-  ~AlignedData() { free(data); }
+  ~AlignedData() { free(data_); }  // NOLINT(cppcoreguidelines-no-malloc): This _is_ the RAII class
 
   // We don't need any of these for the benchmarks.
   AlignedData(const AlignedData&) = delete;
@@ -85,11 +92,11 @@ struct AlignedData {
   AlignedData(AlignedData&&) noexcept = default;
 
   // Docs for assume_aligned: https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p1007r3.pdf
-  [[nodiscard]] T* aligned_data() { return std::assume_aligned<ALIGN>(data); }
-  [[nodiscard]] const T* aligned_data() const { return std::assume_aligned<ALIGN>(data); }
+  [[nodiscard]] T* aligned_data() { return std::assume_aligned<ALIGN>(data_); }
+  [[nodiscard]] const T* aligned_data() const { return std::assume_aligned<ALIGN>(data_); }
 
  private:
-  T* data;
+  T* data_;
 };
 
 // Helpers to allow finding the corresponding uintX_t type from a size at compile time
@@ -102,7 +109,3 @@ template <> struct UnsignedInt<2> { using T = uint16_t; };
 template <> struct UnsignedInt<4> { using T = uint32_t; };
 template <> struct UnsignedInt<8> { using T = uint64_t; };
 // clang-format on
-
-#if defined(__x86_64__)
-#include <immintrin.h>
-#endif

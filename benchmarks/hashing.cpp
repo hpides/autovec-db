@@ -10,10 +10,6 @@
 
 #define BM_ARGS Arg(27)
 
-// TODO(lawben): Check which number here makes sense. We need: #keys / (#vector-lanes / 8B key) registers.
-//                 --> 128 keys = 16 zmm | 32 ymm | 64 xmm registers
-//                 -->  64 keys =  8 zmm | 16 ymm | 32 xmm registers
-//               This will impact if the compiler can unroll the loop or not.
 static constexpr uint64_t NUM_KEYS = 64;
 
 // Not yet consistently used.
@@ -24,9 +20,7 @@ using HashArray = AlignedArray<KeyT, NUM_KEYS, 64>;
 // Constant taken from https://github.com/rurban/smhasher
 constexpr static uint64_t MULTIPLY_CONSTANT = 0x75f17d6b3588f843ull;
 
-uint64_t calculate_hash(uint64_t key, uint64_t required_bits) {
-  return (key * MULTIPLY_CONSTANT) >> (64 - required_bits);
-}
+uint64_t calculate_hash(uint64_t key, int required_bits) { return (key * MULTIPLY_CONSTANT) >> (64u - required_bits); }
 
 /*
  Some instruction sets can't multiply vectors of 64-bit ints and truncate the result elements to 64 bits (AVX2, NEON).
@@ -47,10 +41,10 @@ uint64_t calculate_hash(uint64_t key, uint64_t required_bits) {
 template <typename HashFn>
 void BM_hashing(benchmark::State& state) {
   HashFn hash_fn{};
-  uint64_t required_bits = state.range(0);
+  const int required_bits = static_cast<int>(state.range(0));
 
   // Seed rng for same benchmark runs.
-  std::mt19937_64 rng{345873456};
+  std::mt19937_64 rng{std::random_device{}()};
 
   HashArray keys_to_hash;
   HashArray correct_hash_values;
@@ -70,6 +64,9 @@ void BM_hashing(benchmark::State& state) {
     const HashArray hashes = hash_fn(keys_to_hash, required_bits);
     benchmark::DoNotOptimize(hashes);
   }
+
+  state.counters["PerValue"] = benchmark::Counter(static_cast<double>(state.iterations() * keys_to_hash.size()),
+                                                  benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
 ///////////////////////
@@ -80,7 +77,7 @@ struct naive_scalar_hash {
   __attribute__((optimize("no-tree-vectorize")))
 #endif
   HashArray
-  operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+  operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
 #if CLANG_COMPILER
 #pragma clang loop vectorize(disable)
@@ -98,7 +95,7 @@ BENCHMARK(BM_hashing<naive_scalar_hash>)->BM_ARGS;
 ///     AUTOVEC     ///
 ///////////////////////
 struct autovec_scalar_hash {
-  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+  HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
     for (size_t i = 0; i < NUM_KEYS; ++i) {
       result[i] = calculate_hash(keys_to_hash[i], required_bits);
@@ -120,13 +117,13 @@ struct vector_hash {
   using VecT = typename simd::GccVec<uint64_t, VECTOR_BYTES>::T;
   static_assert(sizeof(VecT) == VECTOR_BYTES);
 
-  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+  HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
     const VecT* vec_keys = reinterpret_cast<const VecT*>(keys_to_hash.data());
 
     auto hashes = reinterpret_cast<VecT*>(result.data());
 
-    uint64_t shift = 64 - required_bits;
+    const int shift = 64 - required_bits;
     for (size_t i = 0; i < NUM_KEYS / NUM_VECTOR_ELEMENTS; ++i) {
       hashes[i] = (vec_keys[i] * MULTIPLY_CONSTANT) >> shift;
     }
@@ -137,11 +134,9 @@ struct vector_hash {
 BENCHMARK(BM_hashing<vector_hash<64>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<128>>)->BM_ARGS;
 
-// TODO: figure out why these are so fast
-// Richard: On x86, clang generates different code for the 64-bit multiplication
-// that is ~20% faster. I'd guess it's due to microarchitecture insight?
-// Should we give this as a win to clang? If we were using agner fogs library,
-// we wouldn't get that performance.
+// On x86, clang generates different code for the 64-bit multiplication that is ~20% faster. I'd guess it's due to
+// microarchitecture insight?  Should we give this as a win to clang? If we were using agner fogs library, we wouldn't
+// get that performance.
 BENCHMARK(BM_hashing<vector_hash<256>>)->BM_ARGS;
 BENCHMARK(BM_hashing<vector_hash<512>>)->BM_ARGS;
 
@@ -177,7 +172,7 @@ struct neon_hash {
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
   static_assert(NUM_KEYS % KEYS_PER_ITERATION == 0);
 
-  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+  HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
     auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
     auto* typed_output_ptr = reinterpret_cast<VecT*>(result.data());
@@ -208,41 +203,41 @@ struct x86_128_hash {
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
   static_assert(NUM_KEYS % KEYS_PER_ITERATION == 0);
 
-  __m128i multiply(__m128i a, __m128i b) {
+  static __m128i multiply(__m128i a, __m128i b) {
     // logic same as in https://github.com/vectorclass/version2/blob/master/vectori128.h#L4062-L4081
     // 4x32: 0, 0, 0, 0
-    __m128i zero = _mm_setzero_si128();
+    const __m128i zero = _mm_setzero_si128();
 
     // 4x32: b0Hi, b0Lo, b1Hi, b1Lo
-    __m128i b_hi_lo_swapped = _mm_shuffle_epi32(b, 0xB1);
+    const __m128i b_hi_lo_swapped = _mm_shuffle_epi32(b, 0xB1);
 
     // 4x32: a0Lo * b0Hi, a0Hi * b0Lo, a1Lo * b1Hi, a1Hi * b1Lo
-    __m128i product_hi_lo_pairs = _mm_mullo_epi32(a, b_hi_lo_swapped);
+    const __m128i product_hi_lo_pairs = _mm_mullo_epi32(a, b_hi_lo_swapped);
 
     // 4x32: a0Lo * b0Hi + a0Hi * b0Lo, a1Lo * b1Hi + a1Hi * b1Lo, 0, 0
-    __m128i hi_lo_pair_product_sums = _mm_hadd_epi32(product_hi_lo_pairs, zero);
+    const __m128i hi_lo_pair_product_sums = _mm_hadd_epi32(product_hi_lo_pairs, zero);
 
     // 4x32: 0, a0Lo * b0Hi + a0Hi * b0Lo, 0, a1Lo * b1Hi + a1Hi * b1Lo
-    __m128i product_hi_lo_pairs_shuffled = _mm_shuffle_epi32(hi_lo_pair_product_sums, 0x73);
+    const __m128i product_hi_lo_pairs_shuffled = _mm_shuffle_epi32(hi_lo_pair_product_sums, 0x73);
 
     // 2x64: a0Lo * b0Lo, a1Lo * b1Lo
-    __m128i product_lo_lo = _mm_mul_epu32(a, b);
+    const __m128i product_lo_lo = _mm_mul_epu32(a, b);
 
     // 2x64: a0Lo * b0Lo + (a0Lo * b0Hi + a0Hi * b0Lo) << 32, a1Lo * b1Lo + (a1Lo * b1Hi + a1Hi * b1Lo) << 32
     return _mm_add_epi64(product_lo_lo, product_hi_lo_pairs_shuffled);
   }
 
-  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+  HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
-    auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
+    const auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
     auto* typed_output_ptr = reinterpret_cast<VecT*>(result.data());
 
-    VecT factor_vec = _mm_set1_epi64x(MULTIPLY_CONSTANT);
-    uint64_t shift = 64 - required_bits;
+    const VecT factor_vec = _mm_set1_epi64x(MULTIPLY_CONSTANT);
+    const int shift = 64 - required_bits;
 
     for (size_t i = 0; i < NUM_KEYS / KEYS_PER_ITERATION; ++i) {
-      auto multiplied = multiply(typed_input_ptr[i], factor_vec);
-      auto shifted = _mm_srli_epi64(multiplied, shift);
+      const auto multiplied = multiply(typed_input_ptr[i], factor_vec);
+      const auto shifted = _mm_srli_epi64(multiplied, shift);
       typed_output_ptr[i] = shifted;
     }
 
@@ -256,41 +251,41 @@ struct x86_256_hash {
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
   static_assert(NUM_KEYS % KEYS_PER_ITERATION == 0);
 
-  __m256i multiply(__m256i a, __m256i b) {
+  static __m256i multiply(__m256i a, __m256i b) {
     // logic same as in https://github.com/vectorclass/version2/blob/master/vectori256.h#L3358-L3365
     // 8x32: 0, 0, 0, 0, 0, 0, 0, 0
-    __m256i zero = _mm256_setzero_si256();
+    const __m256i zero = _mm256_setzero_si256();
 
     // 8x32: b0Hi, b0Lo, b1Hi, b1Lo, b2Hi, b2Lo, b3Hi, b3Lo
-    __m256i b_hi_lo_swapped = _mm256_shuffle_epi32(b, 0xB1);
+    const __m256i b_hi_lo_swapped = _mm256_shuffle_epi32(b, 0xB1);
 
     // 8x32: a0Lo * b0Hi, a0Hi * b0Lo, a1Lo * b1Hi, a1Hi * b1Lo, a2Lo * b2Hi, a2Hi * b2Lo, a3Lo * b3Hi, a3Hi * b3Lo
-    __m256i product_hi_lo_pairs = _mm256_mullo_epi32(a, b_hi_lo_swapped);
+    const __m256i product_hi_lo_pairs = _mm256_mullo_epi32(a, b_hi_lo_swapped);
 
     // 4x32: a0Lo b0Hi + a0Hi b0Lo, a1Lo b1Hi + a1Hi b1Lo, 0, 0, a2Lo b2Hi + a2Hi b2Lo, a3Lo b3Hi + a3Hi b3Lo, 0, 0
-    __m256i hi_lo_pair_product_sums = _mm256_hadd_epi32(product_hi_lo_pairs, zero);
+    const __m256i hi_lo_pair_product_sums = _mm256_hadd_epi32(product_hi_lo_pairs, zero);
 
     // 4x32: 0, a0Lo b0Hi + a0Hi b0Lo, 0, a1Lo b1Hi + a1Hi b1Lo, 0, a2Lo b2Hi + a2Hi b2Lo, 0, a3Lo b3Hi + a3Hi b3Lo
-    __m256i product_hi_lo_pairs_shuffled = _mm256_shuffle_epi32(hi_lo_pair_product_sums, 0x73);
+    const __m256i product_hi_lo_pairs_shuffled = _mm256_shuffle_epi32(hi_lo_pair_product_sums, 0x73);
 
     // 2x64: a0Lo * b0Lo, a1Lo * b1Lo, a2Lo * b2Lo, b3Lo * b3Lo
-    __m256i product_lo_lo = _mm256_mul_epu32(a, b);
+    const __m256i product_lo_lo = _mm256_mul_epu32(a, b);
 
     // 4x64: a0Lo b0Lo + (a0Lo b0Hi + a0Hi b0Lo) << 32, a1Lo b1Lo + (a1Lo b1Hi + a1Hi b1Lo) << 32, ...
     return _mm256_add_epi64(product_lo_lo, product_hi_lo_pairs_shuffled);
   }
 
-  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+  HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
-    auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
+    const auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
     auto* typed_output_ptr = reinterpret_cast<VecT*>(result.data());
 
-    VecT factor_vec = _mm256_set1_epi64x(MULTIPLY_CONSTANT);
-    uint64_t shift = 64 - required_bits;
+    const VecT factor_vec = _mm256_set1_epi64x(MULTIPLY_CONSTANT);
+    const int shift = 64 - required_bits;
 
     for (size_t i = 0; i < NUM_KEYS / KEYS_PER_ITERATION; ++i) {
-      auto multiplied = multiply(typed_input_ptr[i], factor_vec);
-      auto shifted = _mm256_srli_epi64(multiplied, shift);
+      const auto multiplied = multiply(typed_input_ptr[i], factor_vec);
+      const auto shifted = _mm256_srli_epi64(multiplied, shift);
       typed_output_ptr[i] = shifted;
     }
 
@@ -306,18 +301,18 @@ struct x86_512_hash {
   static constexpr size_t KEYS_PER_ITERATION = sizeof(VecT) / sizeof(KeyT);
   static_assert(NUM_KEYS % KEYS_PER_ITERATION == 0);
 
-  HashArray operator()(const HashArray& keys_to_hash, uint64_t required_bits) {
+  HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
 
-    auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
+    const auto* typed_input_ptr = reinterpret_cast<const VecT*>(keys_to_hash.data());
     auto* typed_output_ptr = reinterpret_cast<VecT*>(result.data());
 
-    VecT factor_vec = _mm512_set1_epi64(MULTIPLY_CONSTANT);
-    uint64_t shift = 64 - required_bits;
+    const VecT factor_vec = _mm512_set1_epi64(MULTIPLY_CONSTANT);
+    const uint64_t shift = 64 - required_bits;
 
     for (size_t i = 0; i < NUM_KEYS / KEYS_PER_ITERATION; ++i) {
-      auto multiplied = _mm512_mullo_epi64(typed_input_ptr[i], factor_vec);
-      auto shifted = _mm512_srli_epi64(multiplied, shift);
+      const auto multiplied = _mm512_mullo_epi64(typed_input_ptr[i], factor_vec);
+      const auto shifted = _mm512_srli_epi64(multiplied, shift);
       typed_output_ptr[i] = shifted;
     }
 

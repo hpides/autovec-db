@@ -16,7 +16,7 @@ set(CMAKE_EXE_LINKER_FLAGS_ASAN "${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO} -fsani
 
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -D_GLIBCXX_ASSERTIONS -DENABLE_DEBUG_DO" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG" CACHE STRING "" FORCE)
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g3 -DNDEBUG" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g3 -gdwarf-4 -DNDEBUG" CACHE STRING "" FORCE)
 
 set(OVERRIDE_ARCHITECTURE_FLAGS "" CACHE STRING "If not empty, the value is passed to the compiler instead of march/mcpu=native.")
 
@@ -34,7 +34,13 @@ else()
 endif()
 
 # We need this to to reinterpret_casts of GCC vector types.
-add_compile_options(-flax-vector-conversions)
+add_compile_options("-flax-vector-conversions")
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+  add_compile_options("-fconstexpr-ops-limit=90000000")
+else()
+  add_compile_options("-fconstexpr-steps=30000000")
+endif()
 
 ##################### Google Benchmark ####################
 include(FetchContent)
@@ -81,8 +87,9 @@ function(add_benchmark bm_name)
   add_executable(${bm_name} ${AUTOVEC_SOURCE_DIR}/${bm_name}.cpp)
   target_link_libraries(${bm_name} PRIVATE autovec_includes benchmark)
   target_compile_options(${bm_name} PRIVATE "${WARNING_OPTIONS}")
+
   # Keep the temporary files so we can inspect the generated assembly.
-  set_target_properties(${bm_name} PROPERTIES COMPILE_FLAGS "-save-temps=obj -fverbose-asm")
+  target_compile_options(${bm_name} PRIVATE "-save-temps=obj" "-fverbose-asm")
 endfunction()
 
 add_benchmark(compare_to_bitmask)
