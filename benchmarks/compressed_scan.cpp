@@ -553,6 +553,8 @@ BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
 
 struct x86_pdep_scan {
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    // approach as found in
+    // https://github.com/facebookincubator/velox/blob/3d820e92a399e60c867990b6ac94e6f518e8d9af/velox/dwio/common/BitPackDecoder.h#L315-L347
     const auto* __restrict input_bytes = reinterpret_cast<const std::byte*>(input);
 
     constexpr uint64_t PDEP_STORE_MASK = 0x000001ff000001ff;
