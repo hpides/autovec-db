@@ -165,7 +165,7 @@ BENCHMARK(BM_hash_bucket_get<naive_scalar_key_only_find>)->BM_ARGS;
 
 struct autovec_scalar_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    // TODO: This code is okay-ish C++ for autovectorization.
+    // This code is okay-ish C++ for autovectorization.
     // However, clang is currently broken when extracting values from the 16-byte char array as a bigger int
     // (https://github.com/llvm/llvm-project/issues/59937)
     // and GCC doesn't autovectorize the match-from-fingerprints logic well
