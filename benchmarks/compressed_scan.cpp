@@ -550,6 +550,36 @@ struct x86_128_scan {
 };
 
 BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
+
+struct x86_128_pdep_scan {
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    const auto* __restrict input_bytes = reinterpret_cast<const std::byte*>(input);
+
+    constexpr uint64_t PDEP_STORE_MASK = 0x000001ff000001ff;
+
+    // process 8 values (8 * 9 bits = 72bit = 9 Bytes) at once
+    static_assert(NUM_TUPLES % 8 == 0);
+    for (size_t tuple_index = 0; tuple_index < num_tuples; tuple_index += 8) {
+      const size_t read_start_byte = tuple_index * 9 / 8;
+
+      uint64_t lower_8_bytes = 0;
+      std::memcpy(&lower_8_bytes, input_bytes + read_start_byte, sizeof(lower_8_bytes));
+
+      uint64_t upper_byte = 0;
+      std::memcpy(&upper_byte, input_bytes + read_start_byte + 8, 1);
+
+      // TODO: Wrong alignment is UB here
+      *reinterpret_cast<uint64_t*>(output + tuple_index) = _pdep_u64(lower_8_bytes, PDEP_STORE_MASK);
+      *reinterpret_cast<uint64_t*>(output + tuple_index + 2) = _pdep_u64(lower_8_bytes >> (2 * 9), PDEP_STORE_MASK);
+      *reinterpret_cast<uint64_t*>(output + tuple_index + 4) = _pdep_u64(lower_8_bytes >> (4 * 9), PDEP_STORE_MASK);
+      // 6*9=54, so we have 64-54=10 bits left in lower_8_bytes, and we need to "append" the 8 bits of the next byte
+      *reinterpret_cast<uint64_t*>(output + tuple_index + 6) =
+          _pdep_u64(lower_8_bytes >> (6 * 9) | (upper_byte << (64 - 6 * 9)), PDEP_STORE_MASK);
+    }
+  }
+};
+
+BENCHMARK(BM_scanning<x86_128_pdep_scan>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
