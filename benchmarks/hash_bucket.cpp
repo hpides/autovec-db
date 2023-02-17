@@ -1,13 +1,13 @@
-#include <stddef.h>
-
 #include <array>
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <numeric>
 #include <random>
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
+#include "simd.hpp"
 
 static constexpr uint64_t NUM_ENTRIES = 15;
 static constexpr uint64_t NUM_LOOKUPS_PER_ITERATION = 1024;
@@ -37,37 +37,34 @@ void BM_hash_bucket_get(benchmark::State& state) {
   std::uniform_int_distribution<uint64_t> non_existing_key_distribution(1e19 + 1);
 
   HashBucket bucket{};
-  std::generate(bucket.fingerprints.begin(), bucket.fingerprints.end(), [&]() { return rng() | 128; });
+  std::generate(bucket.fingerprints.begin(), bucket.fingerprints.end(), [&]() { return rng() | 128u; });
   bucket.fingerprints[NUM_ENTRIES] = 0;
   std::generate(bucket.entries.begin(), bucket.entries.end(), [&]() {
     return Entry{existing_key_distribution(rng), rng()};
   });
 
-  std::array<size_t, NUM_LOOKUPS_PER_ITERATION> lookup_indices;
+  std::array<size_t, NUM_LOOKUPS_PER_ITERATION> lookup_indices{};
   std::generate(lookup_indices.begin(), lookup_indices.end(), [&]() {
     if (rng() % 2 == 0) {
       return index_distribution(rng);  // With ~50% probability, we look up a random existing element.
-    } else {
-      return -1;  // otherwise, we attempt to lookup a non-existing key
     }
+    return -1;  // otherwise, we attempt to lookup a non-existing key
   });
 
-  std::array<uint8_t, NUM_LOOKUPS_PER_ITERATION> lookup_fps;
+  std::array<uint8_t, NUM_LOOKUPS_PER_ITERATION> lookup_fps{};
   std::transform(lookup_indices.begin(), lookup_indices.end(), lookup_fps.begin(), [&](size_t index) {
     if (index == -1ull) {
-      return static_cast<uint8_t>(rng() | 128);  // can collide, this is realistic
-    } else {
-      return bucket.fingerprints[index];
+      return static_cast<uint8_t>(rng() | 128u);  // can collide, this is realistic
     }
+    return bucket.fingerprints[index];
   });
 
-  std::array<uint64_t, NUM_LOOKUPS_PER_ITERATION> lookup_keys;
+  std::array<uint64_t, NUM_LOOKUPS_PER_ITERATION> lookup_keys{};
   std::transform(lookup_indices.begin(), lookup_indices.end(), lookup_keys.begin(), [&](size_t index) {
     if (index == -1ull) {
       return non_existing_key_distribution(rng);
-    } else {
-      return bucket.entries[index].key;
     }
+    return bucket.entries[index].key;
   });
 
   // "leak" pointers so that successive DoNotOptimize calls invalidate it.
@@ -85,11 +82,11 @@ void BM_hash_bucket_get(benchmark::State& state) {
     }
   }
 
-  state.counters["TimePerLookup"] = benchmark::Counter(state.iterations() * NUM_LOOKUPS_PER_ITERATION,
-                                                       benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+  state.counters["PerLookup"] = benchmark::Counter(static_cast<double>(state.iterations()) * NUM_LOOKUPS_PER_ITERATION,
+                                                   benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 
-inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, uint64_t key,
+inline uint64_t key_matches_from_fingerprint_matches_byte(const HashBucket& bucket, uint64_t key,
                                                           __uint128_t fingerprint_matches) {
   if (fingerprint_matches == 0) {
     return NO_MATCH;
@@ -97,20 +94,21 @@ inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, ui
 
   auto process_half = [&](uint64_t half, size_t bit_offset) {
     while (half != 0) {
-      int trailing_zeros = std::countr_zero(half);
+      const int trailing_zeros = std::countr_zero(half);
 
       // We know for a fact that trailing_zeros is a multiple of 8, but clang 15 doesn't properly optimize, and still
       // produces shift-right 3, shift-left 4 to clear the lower 3 bits. Thus, we compute the address manually without
       // the division.
       static_assert(sizeof(bucket.entries[0]) % 8 == 0);
-      auto& bucket_entry = *reinterpret_cast<Entry*>(reinterpret_cast<std::byte*>(bucket.entries.data()) +
-                                                     (trailing_zeros + bit_offset) * (sizeof(Entry) / 8));
+      const auto& bucket_entry =
+          *reinterpret_cast<const Entry*>(reinterpret_cast<const std::byte*>(bucket.entries.data()) +
+                                          (trailing_zeros + bit_offset) * (sizeof(Entry) / 8));
 
       if (bucket_entry.key == key) [[likely]] {
         return bucket_entry.value;
       }
 
-      half &= ~(255ul << trailing_zeros);
+      half &= ~(255ul << static_cast<unsigned int>(trailing_zeros));
     }
     return NO_MATCH;
   };
@@ -125,8 +123,8 @@ inline uint64_t key_matches_from_fingerprint_matches_byte(HashBucket& bucket, ui
 inline uint64_t key_matches_from_fingerprint_matches_bit(HashBucket& bucket, uint64_t key,
                                                          uint16_t fingerprint_matches) {
   while (fingerprint_matches != 0) {
-    int trailing_zeros = std::countr_zero(fingerprint_matches);
-    int match_pos = trailing_zeros;
+    const int trailing_zeros = std::countr_zero(fingerprint_matches);
+    const int match_pos = trailing_zeros;
 
     // We expect fingerprint collisions to be unlikely
     if (bucket.entries[match_pos].key == key) [[likely]] {
@@ -134,7 +132,7 @@ inline uint64_t key_matches_from_fingerprint_matches_bit(HashBucket& bucket, uin
     }
 
     // Clear the fingerprint match bit (which is now the least significant set bit)
-    fingerprint_matches &= fingerprint_matches - 1;
+    fingerprint_matches &= fingerprint_matches - 1u;
   }
   return NO_MATCH;
 }
@@ -174,8 +172,7 @@ struct autovec_scalar_find {
     // playground: https://godbolt.org/z/Eoezxh9E3
     uint8_t* __restrict fingerprint_data = std::assume_aligned<16>(bucket.fingerprints.data());
 
-    // Intentionally not initialized to avoid zeroing memory, as we write all elements directly anyway.
-    alignas(16) std::array<uint8_t, 16> matches;
+    alignas(16) std::array<uint8_t, 16> matches{};
     for (size_t i = 0; i < 16; ++i) {
       matches[i] = fingerprint_data[i] == fingerprint ? 0xff : 0;
     }
@@ -186,12 +183,11 @@ struct autovec_scalar_find {
 BENCHMARK(BM_hash_bucket_get<autovec_scalar_find>)->BM_ARGS;
 
 struct vector_bytemask_find {
-  using uint8x16 = GccVec<uint8_t, 16>::T;
+  using uint8x16 = simd::GccVec<uint8_t, 16>::T;
 
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    uint8x16 fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
-    uint8x16 lookup_fp = broadcast<uint8x16>(fingerprint);
-    uint8x16 matching_fingerprints = fp_vector == lookup_fp;
+    const auto fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
+    const uint8x16 matching_fingerprints = fp_vector == fingerprint;
 
     return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(matching_fingerprints));
   }
@@ -200,15 +196,13 @@ BENCHMARK(BM_hash_bucket_get<vector_bytemask_find>)->BM_ARGS;
 
 #if CLANG_COMPILER
 struct vector_bitmask_find {
-  using uint8x16 = GccVec<uint8_t, 16>::T;
-  using boolx16 = ClangBitmask<16>::T;
+  using uint8x16 = simd::GccVec<uint8_t, 16>::T;
+  using boolx16 = simd::ClangBitmask<16>::T;
 
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    uint8x16 fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
-    uint8x16 lookup_fp = broadcast<uint8x16>(fingerprint);
-
-    boolx16 matching_fingerprints_bits_vec = __builtin_convertvector(fp_vector == lookup_fp, boolx16);
-    uint16_t matching_fingerprints_bits = reinterpret_cast<uint16_t&>(matching_fingerprints_bits_vec);
+    const auto fp_vector = *reinterpret_cast<uint8x16*>(bucket.fingerprints.data());
+    const boolx16 matching_fingerprints_bits_vec = __builtin_convertvector(fp_vector == fingerprint, boolx16);
+    const uint16_t matching_fingerprints_bits = reinterpret_cast<const uint16_t&>(matching_fingerprints_bits_vec);
 
     return key_matches_from_fingerprint_matches_bit(bucket, key, matching_fingerprints_bits);
   }
@@ -253,9 +247,9 @@ BENCHMARK(BM_hash_bucket_get<neon_bitmask_find>)->BM_ARGS;
 #if defined(__x86_64__)
 struct x86_bytemask_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    __m128i* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
-    __m128i lookup_fp = _mm_set1_epi8(fingerprint);
-    __m128i fingerprint_matches = _mm_cmpeq_epi8(*fp_vector, lookup_fp);
+    auto* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
+    const __m128i lookup_fp = _mm_set1_epi8(static_cast<int8_t>(fingerprint));
+    const __m128i fingerprint_matches = _mm_cmpeq_epi8(*fp_vector, lookup_fp);
 
     return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t>(fingerprint_matches));
   }
@@ -264,10 +258,10 @@ BENCHMARK(BM_hash_bucket_get<x86_bytemask_find>)->BM_ARGS;
 
 struct x86_bitmask_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    __m128i* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
-    __m128i lookup_fp = _mm_set1_epi8(fingerprint);
-    __m128i fingerprint_matches = _mm_cmpeq_epi8(*fp_vector, lookup_fp);
-    uint16_t fingerprint_matches_bits = _mm_movemask_epi8(fingerprint_matches);
+    const auto* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
+    const __m128i lookup_fp = _mm_set1_epi8(static_cast<int8_t>(fingerprint));
+    const __m128i fingerprint_matches = _mm_cmpeq_epi8(*fp_vector, lookup_fp);
+    const uint16_t fingerprint_matches_bits = _mm_movemask_epi8(fingerprint_matches);
 
     return key_matches_from_fingerprint_matches_bit(bucket, key, fingerprint_matches_bits);
   }
@@ -275,12 +269,12 @@ struct x86_bitmask_find {
 BENCHMARK(BM_hash_bucket_get<x86_bitmask_find>)->BM_ARGS;
 #endif
 
-#if defined(AVX512_AVAILABLE)
+#if AVX512_AVAILABLE
 struct x86_avx512_bitmask_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
-    __m128i* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
-    __m128i lookup_fp = _mm_set1_epi8(fingerprint);
-    uint16_t fingerprint_matches = _mm_cmpeq_epi8_mask(*fp_vector, lookup_fp);
+    const __m128i* fp_vector = reinterpret_cast<__m128i*>(bucket.fingerprints.data());
+    const __m128i lookup_fp = _mm_set1_epi8(static_cast<int8_t>(fingerprint));
+    const uint16_t fingerprint_matches = _mm_cmpeq_epi8_mask(*fp_vector, lookup_fp);
 
     return key_matches_from_fingerprint_matches_bit(bucket, key, fingerprint_matches);
   }
