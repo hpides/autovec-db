@@ -26,9 +26,9 @@ def plot_compare_to_bitmask(ax, data, name):
 
 
 if __name__ == '__main__':
-    result_path, plot_dir = INIT(sys.argv)
+    result_path, plot_dir, x86_arch = INIT(sys.argv)
 
-    x86_results = get_results(result_path, "compare_to_bitmask_x86_cascadelake.csv")
+    x86_results = get_results(result_path, f"compare_to_bitmask_x86_{x86_arch}.csv")
     x86_results = clean_up_results(x86_results, "bitmask")
 
     m1_results = get_results(result_path, "compare_to_bitmask_m1.csv")
@@ -48,7 +48,7 @@ if __name__ == '__main__':
             plot_compare_to_bitmask(ax, sub_results[filter_name & filter_256 & filter_bitset], name)
 
     fig.text(0, 0.5, "Speedup by factor x", rotation=90, va='center')
-    fig.text(0.5, 1, "a) x86", ha='center')
+    fig.text(0.5, 1, f"a) x86 {x86_arch.capitalize()}", ha='center')
     fig.text(0.5, 0.5, "b) M1", ha='center')
 
     fig.tight_layout(w_pad=-0.1)
@@ -63,5 +63,5 @@ if __name__ == '__main__':
         Y_GRID(ax)
     #     HIDE_BORDERS(ax)
 
-    plot_path = os.path.join(plot_dir, "compare_to_bitmask")
+    plot_path = os.path.join(plot_dir, f"compare_to_bitmask_{x86_arch}")
     SAVE_PLOT(plot_path)
