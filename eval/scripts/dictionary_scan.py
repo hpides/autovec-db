@@ -62,5 +62,5 @@ if __name__ == '__main__':
         Y_GRID(ax)
         HIDE_BORDERS(ax)
 
-    plot_path = os.path.join(plot_dir, "dictionary_scan")
+    plot_path = os.path.join(plot_dir, f"dictionary_scan_{x86_arch}")
     SAVE_PLOT(plot_path)
