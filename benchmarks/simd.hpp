@@ -68,22 +68,22 @@ namespace detail {
 
 #if defined(__aarch64__)
 
-// All 64 Bit vectors have the same flow, but require the instruction without `q` in it.
-template <typename VectorT>
-concept CanShuffleVecNeon = sizeof(VectorT) == 16;
-
-template <CanShuffleVecNeon VectorT>
-inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
+template <typename VectorT, typename MaskT>
+inline VectorT neon_shuffle_vector(VectorT vec, MaskT mask) {
+  static_assert(sizeof(VectorT) == 16, "Can only do NEON shuffle on 16-Byte NEON vectors.");
   constexpr uint8_t ELEMENT_SIZE = sizeof(decltype(vec[0]));
 
+  auto vec_mask = reinterpret_cast<uint8x16_t>(__builtin_convertvector(mask, VectorT));
+
+  // All 64 Bit vectors have the same flow, but require the instruction without `q` in it.
   if constexpr (ELEMENT_SIZE == 1) {
     // Case: uint8x16_t. This can be represented with one instruction.
-    return vqtbl1q_u8(vec, mask);
+    return vqtbl1q_u8(vec, vec_mask);
   } else if constexpr (ELEMENT_SIZE == 2) {
     // Case: uint16x8_t
     // Takes every even-numbered element from the input vectors. As we pass the same vector twice, we pick byte
     // 0/2/4/... from `mask` twice, duplicate it in `converted_mask`.
-    uint8x16_t converted_mask = vtrn1q_u8(mask, mask);
+    uint8x16_t converted_mask = vtrn1q_u8(mask, vec_mask);
     converted_mask *= ELEMENT_SIZE;
     converted_mask += uint8x16_t{0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
     return vqtbl1q_u8(vec, converted_mask);
@@ -109,7 +109,7 @@ inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
     // uint8x16_t converted_mask = vreinterpretq_u8_u32(converted_mask_u32);
 
     // Alternative 3: (this is better than #2 and #1)
-    uint8x16_t converted_mask = vreinterpretq_u8_u32(mask * 0x01010101);
+    uint8x16_t converted_mask = vreinterpretq_u8_u32(vreinterpretq_u32_u8(vec_mask) * 0x01010101);
 
     // Finalize is the same for all alternatives.
     converted_mask *= ELEMENT_SIZE;
@@ -129,10 +129,10 @@ inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
     //     static_cast<uint8_t>(mask[1]), static_cast<uint8_t>(mask[1]),
     //     static_cast<uint8_t>(mask[1]), static_cast<uint8_t>(mask[1])};
 
-    // Alternative 2 (like above, too lazy to type here):
+    // Alternative 2 (like above, too lazy to type here)
 
     // Alternative 3:
-    uint8x16_t converted_mask = vreinterpretq_u8_u64(mask * 0x0101010101010101);
+    uint8x16_t converted_mask = vreinterpretq_u8_u64(vreinterpretq_u64_u8(vec_mask) * 0x0101010101010101);
 
     // Finalize is the same for all alternatives.
     converted_mask *= ELEMENT_SIZE;
@@ -141,18 +141,6 @@ inline VectorT neon_shuffle_vector(VectorT vec, VectorT mask) {
   }
 }
 #endif
-
-template <typename VectorT, typename MaskT>
-inline VectorT builtin_shuffle_vector(VectorT vec, MaskT mask) {
-#if GCC_COMPILER
-  // The vector element size must be equal, so we convert the mask to VecT. This is a no-op if they are the same.
-  // Note that this conversion can have a high runtime cost, so consider using the correct type.
-  // See: https://godbolt.org/z/fdvGsWqPa
-  return __builtin_shuffle(vec, __builtin_convertvector(mask, VectorT));
-#else
-  return __builtin_shufflevector(vec, mask);
-#endif
-}
 
 template <typename MaskT, typename VectorT>
 MaskT gcc_comparison_to_bitmask(VectorT bytemask) {
@@ -190,6 +178,8 @@ MaskT gcc_comparison_to_bitmask(VectorT bytemask) {
  *  Unfortunately, builtin shuffling generates very bad assembly, so we need to use a custom implementation here. We
  *  could shuffle with one instruction, but we get O(n) code for n vector elements.
  *  See: https://godbolt.org/z/38Mxvv91q.
+ *  By default, we want to show all code without platform-specific variants. So we use the "bad" version here for ARM.
+ *  If you need the fast option, explicitly use `detail::neon_shuffle_vector()` directly.
  *
  * GCC vs. Clang:
  * --------------
@@ -200,17 +190,16 @@ MaskT gcc_comparison_to_bitmask(VectorT bytemask) {
  *  requires the mask indexes to be "constant integers", i.e., compile-time values. The documentation on these functions
  *  is quite messy/non-existent. See: https://github.com/llvm/llvm-project/issues/59678
  */
+// This specialized method gives a ~60% speedup compared to clang's builtin in the dict scan (on M1 MacBook Pro).
 template <typename VectorT, typename MaskT>
 inline VectorT shuffle_vector(VectorT vec, MaskT mask) {
-#if defined(__aarch64__)
-  if constexpr (detail::CanShuffleVecNeon<VectorT>) {
-    // This specialized method gives a ~60% speedup compared to clang's builtin in the dict scan (on M1 MacBook Pro).
-    return detail::neon_shuffle_vector(vec, mask);
-  } else {
-    return detail::builtin_shuffle_vector(vec, mask);
-  }
+#if GCC_COMPILER
+  // The vector element size must be equal, so we convert the mask to VecT. This is a no-op if they are the same.
+  // Note that this conversion can have a runtime cost, so consider using the correct type.
+  // See: https://godbolt.org/z/3xdahP67o
+  return __builtin_shuffle(vec, __builtin_convertvector(mask, VectorT));
 #else
-  return detail::builtin_shuffle_vector(vec, mask);
+  return __builtin_shufflevector(vec, mask);
 #endif
 }
 
