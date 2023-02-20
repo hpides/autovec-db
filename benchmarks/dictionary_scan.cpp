@@ -1,9 +1,10 @@
+#include <algorithm>
 #include <array>
 #include <bit>
-#include <cstdint>
-#include <iostream>
+#include <cstring>
 #include <numeric>
 #include <random>
+#include <stdexcept>
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"

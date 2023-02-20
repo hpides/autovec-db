@@ -1,7 +1,10 @@
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <memory>
 #include <numeric>
 #include <random>
 

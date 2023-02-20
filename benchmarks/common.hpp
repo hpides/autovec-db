@@ -3,8 +3,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #if (defined(__GNUC__) && !defined(__clang__))
