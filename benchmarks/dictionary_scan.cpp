@@ -182,14 +182,15 @@ struct vector_128_scan_shuffle {
   }
 };
 
-template <size_t VECTOR_SIZE_IN_BYTES>
+template <size_t VECTOR_SIZE_IN_BYTES, typename RowOffsetT>
 struct vector_scan_add {
   using VecT = typename simd::GccVec<DictEntry, VECTOR_SIZE_IN_BYTES>::T;
   static constexpr size_t NUM_VECTOR_ELEMENTS = VECTOR_SIZE_IN_BYTES / sizeof(DictEntry);
+  using RowOffsetVecT = typename simd::GccVec<RowOffsetT, NUM_VECTOR_ELEMENTS * sizeof(RowOffsetT)>::T;
 
-  alignas(VECTOR_SIZE_IN_BYTES) static constexpr std::array<std::array<uint32_t, NUM_VECTOR_ELEMENTS>,
+  alignas(VECTOR_SIZE_IN_BYTES) static constexpr std::array<std::array<RowOffsetT, NUM_VECTOR_ELEMENTS>,
                                                             1 << NUM_VECTOR_ELEMENTS> MATCHES_TO_ROW_OFFSETS =
-      lookup_table_for_compressed_offsets_by_comparison_result<NUM_VECTOR_ELEMENTS, uint32_t, 0>();
+      lookup_table_for_compressed_offsets_by_comparison_result<NUM_VECTOR_ELEMENTS, RowOffsetT, 0>();
 
   // Haswell is a bit slower here because LLVM generates the comparison and move-to-mask inefficiently, see
   // https://godbolt.org/z/bzrxb57Kh
@@ -206,8 +207,8 @@ struct vector_scan_add {
       const VecT compare_result = table_values < filter_val;
       const unsigned int packed_compare_result = simd::comparison_to_bitmask<VecT>(compare_result);
 
-      const VecT matching_row_offsets = simd::load<VecT>(MATCHES_TO_ROW_OFFSETS[packed_compare_result].data());
-      const VecT compressed_matching_rows = chunk_start_row + matching_row_offsets;
+      const auto matching_row_offsets = simd::load<RowOffsetVecT>(MATCHES_TO_ROW_OFFSETS[packed_compare_result].data());
+      const VecT compressed_matching_rows = chunk_start_row + __builtin_convertvector(matching_row_offsets, VecT);
 
       simd::store_unaligned(output + num_matching_rows, compressed_matching_rows);
       num_matching_rows += std::popcount(packed_compare_result);
@@ -216,8 +217,8 @@ struct vector_scan_add {
   }
 };
 
-using vector_128_scan_add = vector_scan_add<16>;
-using vector_512_scan_add = vector_scan_add<64>;
+using vector_128_scan_add = vector_scan_add<16, uint32_t>;
+using vector_512_scan_add = vector_scan_add<64, uint8_t>;
 
 enum class Vector512ScanStrategy { SHUFFLE_MASK_16_BIT, SHUFFLE_MASK_8_BIT, SHUFFLE_MASK_4_BIT };
 
