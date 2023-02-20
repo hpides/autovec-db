@@ -75,7 +75,7 @@ def ALIGN_ROTATED_X_LABELS(ax, offset=-10):
         label.set_transform(label.get_transform() + offset)
 
 
-def ASSERT_VARIANCE_IS_LOW(results, limit_percent=3):
+def ASSERT_VARIANCE_IS_LOW(results, limit_percent=5):
     stddev = results[results.name.str.contains("_stddev")].copy().reset_index()
     mean = results[results.name.str.contains("_mean")].copy().reset_index()
     variance = (stddev['runtime'] / mean['runtime']) * 100

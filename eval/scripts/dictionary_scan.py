@@ -22,9 +22,9 @@ def plot_dictionary_scan(ax, data):
 
 
 if __name__ == '__main__':
-    result_path, plot_dir = INIT(sys.argv)
+    result_path, plot_dir, x86_arch = INIT(sys.argv)
 
-    x86_results = get_results(result_path, "dictionary_scan_x86.csv")
+    x86_results = get_results(result_path, f"dictionary_scan_x86_{x86_arch}.csv")
     x86_results = clean_up_results(x86_results, "scan")
 
     m1_results = get_results(result_path, "dictionary_scan_m1.csv")
@@ -45,7 +45,7 @@ if __name__ == '__main__':
     plot_dictionary_scan(x86_ax, filter_results(x86_results))
     plot_dictionary_scan(m1_ax, filter_results(m1_results))
 
-    x86_ax.set_title("a) x86")
+    x86_ax.set_title(f"a) x86 {x86_arch.capitalize()}")
     m1_ax.set_title("b) M1")
 
     x86_ax.set_ylabel("Speedup by factor x")
