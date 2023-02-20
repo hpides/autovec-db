@@ -140,15 +140,8 @@ struct vector_128_scan_shuffle {
 
   static constexpr size_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
 
-  // TODO: remove the __aarch64__ here with better Neon shuffle
-#if GCC_COMPILER || defined(__aarch64__)
-  // We need 4 values here, and they could be of uint8_t to save memory. However, this has a conversion cost before the
-  // shuffle in GCC and Neon, so we use the larger uint32_t to avoid that runtime cost (~60% in one experiment!)
-  using ShuffleIndexT = RowId;
-#else
   // The entire lookup table fits into a single cache line (4B x 16 = 64B).
   using ShuffleIndexT = uint8_t;
-#endif
 
   using ShuffleVec = simd::GccVec<ShuffleIndexT, 4 * sizeof(ShuffleIndexT)>::T;
 
@@ -229,14 +222,8 @@ struct vector_512_scan_shuffle {
 
   static constexpr size_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
 
-  // TODO: remove the __aarch64__ here with better Neon shuffle
-#if GCC_COMPILER || defined(__aarch64__)
-  // We need 16 values here, and they could be of uint8_t to save memory. However, this has a conversion cost before the
-  // shuffle, so we use the larger uint32_t to avoid that runtime cost.
-  using ShuffleVecElementT = RowId;
-#else
   using ShuffleVecElementT = uint8_t;
-#endif
+
   using ShuffleMask16Elements = simd::GccVec<ShuffleVecElementT, 16 * sizeof(ShuffleVecElementT)>::T;
   static constexpr ShuffleVecElementT SDC = -1;  // SDC == SHUFFLE_DONT_CARE
 
