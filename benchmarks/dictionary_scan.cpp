@@ -326,7 +326,7 @@ struct vector_512_scan_shuffle {
 };
 
 #if defined(__aarch64__)
-struct neon_scan {
+struct neon_scan_shuffle {
   using DictVec = simd::NeonVecT<sizeof(DictEntry)>::T;
   using RowVec = simd::NeonVecT<sizeof(RowId)>::T;
 
@@ -374,7 +374,7 @@ struct neon_scan_add {
       lookup_table_for_compressed_offsets_by_comparison_result<4, uint32_t, 0>();
 
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
-    const DictEntry* __restrict column_data = column.aligned_data();
+    const DictEntry* __restrict rows = column.aligned_data();
     RowId* __restrict output = matching_rows->aligned_data();
 
     RowId num_matching_rows = 0;
@@ -384,7 +384,7 @@ struct neon_scan_add {
 
     for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       const DictVec table_values = vld1q_u32(rows + chunk_start_row);
-      const DictVec compare_result = vcltq_u32(table_values, filter_vec);
+      const DictVec matches = vcltq_u32(table_values, filter_vec);
 
       constexpr DictVec BIT_MASK = {1, 2, 4, 8};
       const uint8_t mask = vaddvq_u32(vandq_u32(matches, BIT_MASK));
@@ -763,7 +763,7 @@ BENCHMARK(BM_dictionary_scan<vector_512_scan_shuffle<Vector512ScanStrategy::SHUF
 BENCHMARK(BM_dictionary_scan<vector_512_scan_add>)->BM_ARGS;
 
 #if defined(__aarch64__)
-BENCHMARK(BM_dictionary_scan<neon_scan>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<neon_scan_shuffle>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<neon_scan_add>)->BM_ARGS;
 #endif
 
