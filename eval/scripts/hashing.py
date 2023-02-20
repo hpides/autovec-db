@@ -12,8 +12,8 @@ def plot_hashing(ax, data):
 
     ax.tick_params(axis='x', which=u'both', length=0)
     ax.set_xticks(range(len(data)))
-    ax.set_xticklabels(data['name'], rotation=75)
-    ALIGN_ROTATED_X_LABELS(ax)
+    ax.set_xticklabels(data['name'], rotation=60, rotation_mode='anchor', ha='right')
+    # ALIGN_ROTATED_X_LABELS(ax)
 
 
 if __name__ == '__main__':

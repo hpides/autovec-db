@@ -15,13 +15,13 @@ pd.set_option('display.max_colwidth', None)
 FONT_SIZE = 20
 MILLION = 1_000_000
 SINGLE_FIG_WIDTH = 5
-SINGLE_FIG_HEIGHT = 3.5
+SINGLE_FIG_HEIGHT = 2.5
 SINGLE_FIG_SIZE = (SINGLE_FIG_WIDTH, SINGLE_FIG_HEIGHT)
 DOUBLE_FIG_WIDTH = 10
-DOUBLE_FIG_HEIGHT = 3.5
+DOUBLE_FIG_HEIGHT = 2.5
 DOUBLE_FIG_SIZE = (DOUBLE_FIG_WIDTH, DOUBLE_FIG_HEIGHT)
 IMG_TYPES = ('.png', '.svg')
-DEFAULT_LABEL_ROTATION = 75
+DEFAULT_LABEL_ROTATION = 60
 
 
 INTEL_BLUE = '#0071c5'
@@ -188,4 +188,5 @@ def clean_up_results(results, bm_suffix):
     results.name = results.name.str.replace("autovec_scalar", "autovec")
     results.name = results.name.str.replace("_", "-")
     results.name = results.name.str.replace("vector", "vec")
+    results.name = results.name.str.replace(" ", "")
     return results

@@ -21,7 +21,7 @@ def plot_compare_to_bitmask(ax, data, name):
     data['name'] = data['name'].str.replace(r"sized-(.+)?-vec", r"\1", regex=True)
 
     # ax.set_xticklabels(data['name'], rotation=60, rotation_mode='anchor', ha='right')
-    ax.set_xticklabels(data['name'], rotation=DEFAULT_LABEL_ROTATION)
+    ax.set_xticklabels(data['name'], rotation=75)
     ALIGN_ROTATED_X_LABELS(ax)
 
 
