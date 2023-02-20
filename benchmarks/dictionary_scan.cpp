@@ -392,8 +392,7 @@ struct neon_scan_add {
 
       const auto* matching_row_offsets = reinterpret_cast<const DictVec*>(MATCHES_TO_ROW_OFFSETS[mask].data());
 
-      // TODO: Here and x86: Use proper add-intrinsic
-      const DictVec compressed_matching_rows = vmovq_n_u32(chunk_start_row) + *matching_row_offsets;
+      const DictVec compressed_matching_rows = vaddq_u32(vmovq_n_u32(chunk_start_row), *matching_row_offsets);
 
       vst1q_u32(output + num_matching_rows, compressed_matching_rows);
       num_matching_rows += std::popcount(mask);
@@ -548,7 +547,7 @@ struct x86_128_scan_add {
       const auto* matching_row_offsets =
           reinterpret_cast<const __m128i*>(MATCHES_TO_ROW_OFFSETS.data() + packed_compare_result);
       const __m128i compressed_matching_rows =
-          _mm_set1_epi32(static_cast<int>(chunk_start_row)) + *matching_row_offsets;
+          _mm_add_epi32(_mm_set1_epi32(static_cast<int>(chunk_start_row)), *matching_row_offsets);
 
       _mm_storeu_si128(reinterpret_cast<__m128i_u*>(output + num_matching_rows), compressed_matching_rows);
 
