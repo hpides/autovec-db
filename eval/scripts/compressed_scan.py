@@ -1,6 +1,5 @@
 import sys
 import os
-sys.path.append(os.path.dirname(sys.path[0]))
 from common import *
 
 
@@ -18,9 +17,9 @@ def plot_compressed_scan(ax, data):
 
 
 if __name__ == '__main__':
-    result_path, plot_dir = INIT(sys.argv)
+    result_path, plot_dir, x86_arch = INIT(sys.argv)
 
-    x86_results = get_results(result_path, "compressed_scan_x86_cascadelake.csv")
+    x86_results = get_results(result_path, f"compressed_scan_x86_{x86_arch}.csv")
     x86_results = clean_up_results(x86_results, "scan")
 
     m1_results = get_results(result_path, "compressed_scan_m1.csv")
@@ -31,7 +30,7 @@ if __name__ == '__main__':
     plot_compressed_scan(x86_ax, x86_results)
     plot_compressed_scan(m1_ax, m1_results)
 
-    x86_ax.set_title("a) x86")
+    x86_ax.set_title(f"a) x86 {x86_arch.capitalize()}")
     m1_ax.set_title("b) M1")
 
     x86_ax.set_ylabel("Speedup by factor x")
@@ -48,5 +47,5 @@ if __name__ == '__main__':
         Y_GRID(ax)
         HIDE_BORDERS(ax)
 
-    plot_path = os.path.join(plot_dir, "compressed_scan")
+    plot_path = os.path.join(plot_dir, f"compressed_scan_{x86_arch}")
     SAVE_PLOT(plot_path)
