@@ -13,7 +13,7 @@ def plot_dictionary_scan(ax, data):
     # Clean up names for labels
     data['name'] = data['name'].str.replace(r"((vec|x86)-\d+)-.*Strategy::(.*)", r"\1-\3", regex=True)
     data['name'] = data['name'].str.replace(r"SHUFFLE-MASK-\d+-BIT", "shuffle", regex=True)
-    data['name'] = data['name'].str.replace(r"-COMPRESSSTORE", "")
+    data['name'] = data['name'].str.replace(r"-COMPRESSSTORE", "-compress")
 
     ax.tick_params(axis='x', which=u'both',length=0)
     ax.set_xticks(range(len(data['name'])))
@@ -48,12 +48,12 @@ if __name__ == '__main__':
     x86_ax.set_title(f"a) x86 {x86_arch.capitalize()}")
     m1_ax.set_title("b) M1")
 
-    x86_ax.set_ylabel("Speedup by factor x")
+    x86_ax.set_ylabel("Speedup")
 
-    x86_ax.set_ylim(0, 21)
-    x86_ax.set_yticks(range(0, 21, 5))
+    x86_ax.set_ylim(0, 25)
+    x86_ax.set_yticks(range(0, 26, 5))
 
-    m1_ax.set_ylim(0, 16)
+    m1_ax.set_ylim(0, 15)
     m1_ax.set_yticks(range(0, 16, 5))
 
 

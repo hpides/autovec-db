@@ -34,7 +34,7 @@ if __name__ == '__main__':
     m1_results = get_results(result_path, "compare_to_bitmask_m1.csv")
     m1_results = clean_up_results(m1_results, "bitmask")
 
-    fig, (x86_axes, m1_axes) = plt.subplots(2, 4, figsize=(DOUBLE_FIG_WIDTH, 2*DOUBLE_FIG_HEIGHT))
+    fig, (x86_axes, m1_axes) = plt.subplots(2, 4, figsize=(DOUBLE_FIG_WIDTH, 7))
     x86_16x1B_ax, x86_16x4B_ax, x86_64x1B_ax, x86_64x4B_ax = x86_axes
     m1_16x1B_ax, m1_16x4B_ax, m1_64x1B_ax, m1_64x4B_ax = m1_axes
 
@@ -47,7 +47,7 @@ if __name__ == '__main__':
             filter_bitset = ~sub_results.name.str.contains("bitset")
             plot_compare_to_bitmask(ax, sub_results[filter_name & filter_256 & filter_bitset], name)
 
-    fig.text(0, 0.5, "Speedup by factor x", rotation=90, va='center')
+    fig.text(0, 0.5, "Speedup", rotation=90, va='center')
     fig.text(0.5, 1, f"a) x86 {x86_arch.capitalize()}", ha='center')
     fig.text(0.5, 0.5, "b) M1", ha='center')
 

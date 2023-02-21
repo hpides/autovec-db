@@ -33,9 +33,9 @@ if __name__ == '__main__':
     x86_ax.set_title(f"a) x86 {x86_arch.capitalize()}")
     m1_ax.set_title("b) M1")
 
-    x86_ax.set_ylabel("Speedup by factor x")
+    x86_ax.set_ylabel("Speedup")
 
-    x86_ax.set_ylim(0, 8.5)
+    x86_ax.set_ylim(0, 9)
     x86_ax.set_yticks(range(0, 9, 2))
 
     m1_ax.set_ylim(0, 16)

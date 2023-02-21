@@ -6,6 +6,8 @@ from common import *
 def plot_hash_bucket(ax, data):
     scalar_perf = data[data['name'].str.contains('scalar')]['runtime'].values[0]
 
+    data['name'] = data['name'].str.replace(r"avx512", "512")
+
     for _, row in data.iterrows():
         variant = row['name']
         ax.bar(variant, scalar_perf / row['runtime'], **BAR(variant))
@@ -14,7 +16,7 @@ def plot_hash_bucket(ax, data):
     ax.set_xticks(range(len(data)))
     ax.set_xticklabels(data['name'], rotation=60, rotation_mode='anchor', ha='right')
     # ax.set_xticklabels(data['name'], rotation=75)
-    # ALIGN_ROTATED_X_LABELS(ax)
+    ALIGN_ROTATED_X_LABELS(ax)
 
 
 if __name__ == '__main__':
@@ -34,13 +36,13 @@ if __name__ == '__main__':
     x86_ax.set_title(f"a) x86 {x86_arch.capitalize()}")
     m1_ax.set_title("b) M1")
 
-    x86_ax.set_ylabel("Speedup by factor x")
+    x86_ax.set_ylabel("Speedup")
 
-    # x86_ax.set_ylim(0, 2)
-    # x86_ax.set_yticks(range(0, 55, 20))
+    x86_ax.set_ylim(0, 5.5)
+    x86_ax.set_yticks(range(0, 6, 1))
 
-    # m1_ax.set_ylim(0, 2)
-    # m1_ax.set_yticks(range(0, 30, 10))
+    m1_ax.set_ylim(0, 4)
+    m1_ax.set_yticks(range(0, 5, 1))
 
     HATCH_WIDTH()
     for ax in (x86_ax, m1_ax):

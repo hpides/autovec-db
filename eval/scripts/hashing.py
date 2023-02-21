@@ -13,7 +13,7 @@ def plot_hashing(ax, data):
     ax.tick_params(axis='x', which=u'both', length=0)
     ax.set_xticks(range(len(data)))
     ax.set_xticklabels(data['name'], rotation=60, rotation_mode='anchor', ha='right')
-    # ALIGN_ROTATED_X_LABELS(ax)
+    ALIGN_ROTATED_X_LABELS(ax)
 
 
 if __name__ == '__main__':
@@ -33,13 +33,13 @@ if __name__ == '__main__':
     x86_ax.set_title(f"a) x86 {x86_arch.capitalize()}")
     m1_ax.set_title("b) M1")
 
-    x86_ax.set_ylabel("Speedup by factor x")
+    x86_ax.set_ylabel("Speedup")
 
-    x86_ax.set_ylim(0, 2)
-    # x86_ax.set_yticks(range(0, 55, 20))
+    x86_ax.set_ylim(0, 3.2)
+    x86_ax.set_yticks(range(0, 4, 1))
 
     m1_ax.set_ylim(0, 2)
-    # m1_ax.set_yticks(range(0, 30, 10))
+    # m1_ax.set_yticks(range(0, 3, 0.5))
 
     HATCH_WIDTH()
     for ax in (x86_ax, m1_ax):
