@@ -1,8 +1,7 @@
 #include <array>
-#include <cstdint>
-#include <iostream>
 #include <numeric>
 #include <random>
+#include <stdexcept>
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"

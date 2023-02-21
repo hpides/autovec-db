@@ -1,7 +1,8 @@
 #include <bitset>
 #include <cassert>
-#include <iostream>
+#include <limits>
 #include <random>
+#include <stdexcept>
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"

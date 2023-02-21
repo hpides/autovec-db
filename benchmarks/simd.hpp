@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <limits>
 #include <numeric>
+#include <type_traits>
 
 #include "common.hpp"
 
