@@ -76,7 +76,7 @@ static constexpr auto element_shuffle_table_to_byte_shuffle_table(auto element_s
   return byte_shuffle_table;
 }
 
-struct naive_scalar_scan {
+struct naive_scan {
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     const DictEntry* column_data = column.aligned_data();
     RowId* output = matching_rows->aligned_data();
@@ -91,7 +91,7 @@ struct naive_scalar_scan {
   }
 };
 
-struct autovec_scalar_scan {
+struct autovec_scan {
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     // The naive version should be autovectorizable with clang, but they currently don't do this
     // see https://github.com/llvm/llvm-project/issues/42210
@@ -700,7 +700,7 @@ void BM_dictionary_scan(benchmark::State& state) {
   // Correctness check with naive implementation
   ScanFn scan_fn{};
   MatchingRows matching_rows_naive{NUM_ROWS};
-  const RowId num_matches_naive = naive_scalar_scan{}(column, filter_value, &matching_rows_naive);
+  const RowId num_matches_naive = naive_scan{}(column, filter_value, &matching_rows_naive);
   const RowId num_matches_specialized = scan_fn(column, filter_value, &matching_rows);
 
   if (num_matches_naive != num_matches_specialized) {
@@ -737,8 +737,8 @@ void BM_dictionary_scan(benchmark::State& state) {
 // Unit(benchmark::kMicrosecond)->Arg(0)->Arg(10)->Arg(33)->Arg(50)->Arg(66)->Arg(100)->ReportAggregatesOnly()
 #define BM_ARGS Unit(benchmark::kMicrosecond)->Arg(50)
 
-BENCHMARK(BM_dictionary_scan<naive_scalar_scan>)->BM_ARGS;
-BENCHMARK(BM_dictionary_scan<autovec_scalar_scan>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<naive_scan>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<autovec_scan>)->BM_ARGS;
 
 BENCHMARK(BM_dictionary_scan<vector_128_scan_shuffle>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<vector_128_scan_predication>)->BM_ARGS;
