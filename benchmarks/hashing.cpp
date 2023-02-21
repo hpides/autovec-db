@@ -310,6 +310,11 @@ struct x86_512_hash {
     const uint64_t shift = 64 - required_bits;
 
     for (size_t i = 0; i < NUM_KEYS / KEYS_PER_ITERATION; ++i) {
+      // Vec-512 is 20% faster here, with clang using the instructions that we get when using
+      // const __m512i shift_vector = _mm512_set1_epi64(shift);
+      // const auto shifted = _mm512_srlv_epi64(multiplied, shift_vector);
+      // We give this as a win to clang
+
       const auto multiplied = _mm512_mullo_epi64(typed_input_ptr[i], factor_vec);
       const auto shifted = _mm512_srli_epi64(multiplied, shift);
       typed_output_ptr[i] = shifted;
