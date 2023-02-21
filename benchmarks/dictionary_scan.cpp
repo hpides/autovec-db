@@ -639,7 +639,7 @@ struct x86_256_avx2_scan_add {
 enum class X86512ScanStrategy { COMPRESSSTORE, COMPRESS_PLUS_STORE };
 
 template <X86512ScanStrategy STRATEGY>
-struct x86_512_scan {
+struct x86_avx512_512_scan {
   static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m512i) / sizeof(DictEntry);
 
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
@@ -654,7 +654,7 @@ struct x86_512_scan {
     for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
       // x86: Doing this instead of {start_row + 0, start_row + 1, ...} has a 3x performance improvement! Also applies
       // to the gcc-vec versions.
-      const __m512i row_ids = _mm512_set1_epi32(static_cast<int>(chunk_start_row)) + row_id_offsets;
+      const __m512i row_ids = _mm512_add_epi32(_mm512_set1_epi32(static_cast<int>(chunk_start_row)), row_id_offsets);
 
       const __m512i rows_to_match = _mm512_load_epi32(rows + chunk_start_row);
       const __mmask16 matches = _mm512_cmplt_epi32_mask(rows_to_match, filter_vec);
@@ -665,6 +665,42 @@ struct x86_512_scan {
         static_assert(STRATEGY == X86512ScanStrategy::COMPRESS_PLUS_STORE);
         auto compressed_rows = _mm512_mask_compress_epi32(row_ids, matches, row_ids);
         _mm512_storeu_epi32(output + num_matching_rows, compressed_rows);
+      }
+
+      num_matching_rows += std::popcount(matches);
+    }
+
+    return num_matching_rows;
+  }
+};
+
+template <X86512ScanStrategy STRATEGY>
+struct x86_avx512_128_scan {
+  static constexpr uint32_t NUM_MATCHES_PER_VECTOR = sizeof(__m128i) / sizeof(DictEntry);
+
+  RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
+    const DictEntry* __restrict rows = column.aligned_data();
+    RowId* __restrict output = matching_rows->aligned_data();
+
+    const __m128i filter_vec = _mm_set1_epi32(static_cast<int>(filter_val));
+    const __m128i row_id_offsets = _mm_set_epi32(3, 2, 1, 0);
+
+    RowId num_matching_rows = 0;
+    static_assert(NUM_ROWS % NUM_MATCHES_PER_VECTOR == 0);
+    for (RowId chunk_start_row = 0; chunk_start_row < NUM_ROWS; chunk_start_row += NUM_MATCHES_PER_VECTOR) {
+      // x86: Doing this instead of {start_row + 0, start_row + 1, ...} has a 3x performance improvement! Also applies
+      // to the gcc-vec versions.
+      const __m128i row_ids = _mm_add_epi32(_mm_set1_epi32(static_cast<int>(chunk_start_row)), row_id_offsets);
+
+      const __m128i rows_to_match = _mm_load_epi32(rows + chunk_start_row);
+      const __mmask16 matches = _mm_cmplt_epi32_mask(rows_to_match, filter_vec);
+
+      if constexpr (STRATEGY == X86512ScanStrategy::COMPRESSSTORE) {
+        _mm_mask_compressstoreu_epi32(output + num_matching_rows, matches, row_ids);
+      } else {
+        static_assert(STRATEGY == X86512ScanStrategy::COMPRESS_PLUS_STORE);
+        auto compressed_rows = _mm_mask_compress_epi32(row_ids, matches, row_ids);
+        _mm_storeu_epi32(output + num_matching_rows, compressed_rows);
       }
 
       num_matching_rows += std::popcount(matches);
@@ -767,8 +803,9 @@ BENCHMARK(BM_dictionary_scan<x86_256_avx2_scan_add>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
-BENCHMARK(BM_dictionary_scan<x86_512_scan<X86512ScanStrategy::COMPRESSSTORE>>)->BM_ARGS;
-BENCHMARK(BM_dictionary_scan<x86_512_scan<X86512ScanStrategy::COMPRESS_PLUS_STORE>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESSSTORE>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESS_PLUS_STORE>>)->BM_ARGS;
+BENCHMARK(BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>)->BM_ARGS;
 #endif
 
 BENCHMARK_MAIN();
