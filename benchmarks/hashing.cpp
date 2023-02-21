@@ -114,8 +114,10 @@ struct autovec_hash {
   HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
 
+#if CLANG_COMPILER
 // Clang cost model for apple-m1 says vectorization is not beneficial, but we get better performance
 #pragma clang loop vectorize(enable)
+#endif
     for (size_t i = 0; i < NUM_KEYS; ++i) {
       result[i] = calculate_hash(keys_to_hash[i], required_bits);
     }
