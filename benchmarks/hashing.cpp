@@ -71,7 +71,8 @@ void BM_hashing(benchmark::State& state) {
 ///////////////////////
 ///     SCALAR      ///
 ///////////////////////
-struct naive_scalar_hash {
+
+struct forced_scalar_hash {
 #if GCC_COMPILER
   __attribute__((optimize("no-tree-vectorize")))
 #endif
@@ -88,14 +89,33 @@ struct naive_scalar_hash {
     return result;
   }
 };
-BENCHMARK(BM_hashing<naive_scalar_hash>)->BM_ARGS;
+BENCHMARK(BM_hashing<forced_scalar_hash>)->BM_ARGS;
+
+///////////////////////
+///      NAIVE      ///
+///////////////////////
+
+struct naive_hash {
+  HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
+    HashArray result;
+    for (size_t i = 0; i < NUM_KEYS; ++i) {
+      result[i] = calculate_hash(keys_to_hash[i], required_bits);
+    }
+
+    return result;
+  }
+};
+BENCHMARK(BM_hashing<naive_hash>)->BM_ARGS;
 
 ///////////////////////
 ///     AUTOVEC     ///
 ///////////////////////
-struct autovec_scalar_hash {
+struct autovec_hash {
   HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
+
+// Clang cost model for apple-m1 says vectorization is not beneficial, but we get better performance
+#pragma clang loop vectorize(enable)
     for (size_t i = 0; i < NUM_KEYS; ++i) {
       result[i] = calculate_hash(keys_to_hash[i], required_bits);
     }
@@ -103,7 +123,7 @@ struct autovec_scalar_hash {
   }
 };
 
-BENCHMARK(BM_hashing<autovec_scalar_hash>)->BM_ARGS;
+BENCHMARK(BM_hashing<autovec_hash>)->BM_ARGS;
 
 ///////////////////////
 ///     VECTOR      ///

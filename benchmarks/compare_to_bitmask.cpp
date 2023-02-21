@@ -43,7 +43,7 @@ template <typename InputT>
 using DefaultMaskT = typename UnsignedInt<(sizeof(InputT) / sizeof(typename InputT::DataT) + 7) / 8>::T;
 
 template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
-struct naive_scalar_bitmask {
+struct forced_scalar_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
 
@@ -71,7 +71,28 @@ struct naive_scalar_bitmask {
 };
 
 template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
-struct autovec_scalar_bitmask {
+struct naive_bitmask {
+  using MaskT = MaskT_;
+  using InputT = InputT_;
+
+  MaskT operator()(const InputT& input1, const InputT& input2) {
+    const auto* __restrict input1_typed = input1.data();
+    const auto* __restrict input2_typed = input2.data();
+
+    constexpr size_t ITERATIONS = sizeof(InputT) / sizeof(typename InputT::DataT);
+
+    MaskT result = 0;
+    for (size_t i = 0; i < ITERATIONS; ++i) {
+      if (input1_typed[i] == input2_typed[i]) {
+        result |= 1ull << i;
+      }
+    }
+    return result;
+  }
+};
+
+template <typename InputT_, typename MaskT_ = DefaultMaskT<InputT_>>
+struct autovec_bitmask {
   using MaskT = MaskT_;
   using InputT = InputT_;
 
@@ -474,7 +495,7 @@ void BM_compare_to_bitmask(benchmark::State& state) {
   BenchFunc bench_fn{};
   constexpr size_t NUM_MASK_BITS = sizeof(typename BenchFunc::MaskT) * 8;
 
-  auto naive_result = naive_scalar_bitmask<InputT, typename BenchFunc::MaskT>{}(input1, input2);
+  auto naive_result = naive_bitmask<InputT, typename BenchFunc::MaskT>{}(input1, input2);
   TRACE_DO(std::cout << "Naive: " << std::bitset<NUM_MASK_BITS>(naive_result) << std::endl;);
   auto specialized_result = bench_fn(input1, input2);
 
@@ -524,8 +545,9 @@ using Input_16B_as_2x8B = AlignedArray<uint64_t, 2, 16>;
 /////////////////////////
 ///   16 Byte Input   ///
 /////////////////////////
-BENCHMARK_WITH_16B_INPUT(naive_scalar_bitmask);
-BENCHMARK_WITH_16B_INPUT(autovec_scalar_bitmask);
+BENCHMARK_WITH_16B_INPUT(forced_scalar_bitmask);
+BENCHMARK_WITH_16B_INPUT(naive_bitmask);
+BENCHMARK_WITH_16B_INPUT(autovec_bitmask);
 BENCHMARK_WITH_16B_INPUT(bitset_bitmask);
 BENCHMARK_WITH_16B_INPUT(sized_gcc_vector_naive_bitmask<128>::Benchmark);
 BENCHMARK_WITH_16B_INPUT(sized_gcc_vector_custom_bitmask<128>::Benchmark);
@@ -545,8 +567,9 @@ BENCHMARK_WITH_16B_INPUT(x86_128_bitmask);
 /////////////////////////
 ///   64 Byte Input   ///
 /////////////////////////
-BENCHMARK_WITH_64B_INPUT(naive_scalar_bitmask);
-BENCHMARK_WITH_64B_INPUT(autovec_scalar_bitmask);
+BENCHMARK_WITH_64B_INPUT(forced_scalar_bitmask);
+BENCHMARK_WITH_64B_INPUT(naive_bitmask);
+BENCHMARK_WITH_64B_INPUT(autovec_bitmask);
 BENCHMARK_WITH_64B_INPUT(bitset_bitmask);
 BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_naive_bitmask<128>::Benchmark);
 BENCHMARK_WITH_64B_INPUT(sized_gcc_vector_naive_bitmask<256>::Benchmark);
