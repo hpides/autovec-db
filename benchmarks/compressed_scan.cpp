@@ -1,13 +1,13 @@
 #include <array>
 #include <bit>
 #include <bitset>
-#include <cstdint>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
-#include <memory>
 #include <numeric>
 #include <random>
+#include <stdexcept>
+#include <vector>
 
 #include "benchmark/benchmark.h"
 #include "common.hpp"
