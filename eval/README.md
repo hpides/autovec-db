@@ -12,7 +12,8 @@ enroot start -m ./autovec-db/:/autovec-db --rw hpides+autovec-db
 
 # alternatively, using docker:
 docker pull hpides/autovec-db
-docker run -it -v "$(pwd):/autovec-db" hpides/autovec-db
+# note: we're using --privileged as we observed up to 5x slower measurements without it (likely a seccomp problem)
+docker run -it --privileged -v "$(pwd):/autovec-db" hpides/autovec-db
 ```
 
 The docker image was built using
