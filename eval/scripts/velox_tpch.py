@@ -18,16 +18,16 @@ def plot_velox_tpch(ax, compiler_results, xsimd_results):
     ax.set_ylabel("Runtime in ms")
     ax.set_xlabel("TPC-H Query")
 
-    Y_LIM = 275
+    Y_LIM = 320
     ax.set_ylim(0, Y_LIM)
-    ax.set_yticks(range(0, Y_LIM, 50))
+    ax.set_yticks(range(0, Y_LIM + 1, 50))
 
     def add_slow_text(pos):
         text_args = {'rotation': 90, 'ha': 'center', 'va': 'top',
                      'bbox': {'facecolor': 'white', 'edgecolor': 'white', 'pad': 0}}
         if int(results.iloc[pos]['vec']) > Y_LIM:
-            ax.text(pos - 0.6, Y_LIM, int(results.iloc[pos]['vec']), **text_args)
-            ax.text(pos + 0.65, Y_LIM, int(results.iloc[pos]['xsimd']), **text_args)
+            ax.text(pos - 0.7, Y_LIM, int(results.iloc[pos]['vec']), **text_args)
+            ax.text(pos + 0.75, Y_LIM, int(results.iloc[pos]['xsimd']), **text_args)
 
     # Some queries are too slow for the plot y-axis limit. Show runtime explicitly.
     for query in range(len(results)):
