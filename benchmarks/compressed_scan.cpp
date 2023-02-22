@@ -123,9 +123,9 @@ void BM_scanning(benchmark::State& state) {
 }
 
 ///////////////////////
-///     SCALAR      ///
+///      NAIVE      ///
 ///////////////////////
-struct naive_scalar_scan {
+struct naive_scan {
   void operator()(const uint64_t* input, uint32_t* output, size_t num_tuples) {
     constexpr size_t U64_BITS = sizeof(uint64_t) * 8;
     constexpr uint64_t MASK = (1 << COMPRESS_BITS) - 1;
@@ -154,12 +154,12 @@ struct naive_scalar_scan {
   }
 };
 
-BENCHMARK(BM_scanning<naive_scalar_scan>)->BM_ARGS;
+BENCHMARK(BM_scanning<naive_scan>)->BM_ARGS;
 
 ///////////////////////
 ///    AUTOVEC      ///
 ///////////////////////
-struct autovec_scalar_scan {
+struct autovec_scan {
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     static_assert(std::endian::native == std::endian::little,
                   "big-endian systems need extra logic to handle uint64_t boundaries correctly.");
@@ -191,7 +191,7 @@ struct autovec_scalar_scan {
   }
 };
 
-BENCHMARK(BM_scanning<autovec_scalar_scan>)->BM_ARGS;
+BENCHMARK(BM_scanning<autovec_scan>)->BM_ARGS;
 
 ///////////////////////
 ///     VECTOR      ///
