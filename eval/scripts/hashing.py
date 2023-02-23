@@ -6,11 +6,11 @@ from common import *
 
 
 def plot_hashing(ax, data):
-    scalar_perf = data[data['name'].str.contains('scalar')]['runtime'].values[0]
+    naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
 
     for _, row in data.iterrows():
         variant = row['name']
-        ax.bar(variant, scalar_perf / row['runtime'], **BAR(variant))
+        ax.bar(variant, naive_perf / row['runtime'], **BAR(variant))
 
     ax.tick_params(axis='x', which=u'both', length=0)
     ax.set_xticks(range(len(data)))
@@ -37,8 +37,8 @@ if __name__ == '__main__':
 
     x86_ax.set_ylabel("Speedup")
 
-    x86_ax.set_ylim(0, 3.2)
-    x86_ax.set_yticks(range(0, 4, 1))
+    x86_ax.set_ylim(0, 1.2)
+    x86_ax.set_yticks([0, 1])
 
     m1_ax.set_ylim(0, 2)
     # m1_ax.set_yticks(range(0, 3, 0.5))

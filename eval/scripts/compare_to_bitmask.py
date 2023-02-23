@@ -7,11 +7,11 @@ from common import *
 
 
 def plot_compare_to_bitmask(ax, data, name):
-    scalar_perf = data[data['name'].str.contains('scalar')]['runtime'].values[0]
+    naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
 
     for _, row in data.iterrows():
         variant = row['name']
-        ax.bar(variant, scalar_perf / row['runtime'], **BAR(variant))
+        ax.bar(variant, naive_perf / row['runtime'], **BAR(variant))
 
     ax.set_title(re.sub(r"\d+B-as-(\d+x\d+B)", r"\1", name))
     ax.tick_params(axis='x', which=u'both',length=0)

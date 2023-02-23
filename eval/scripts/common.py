@@ -31,6 +31,7 @@ DEFAULT_X86_ARCH = 'icelake'
 
 
 VARIANT_COLOR_BLACK_WHITE = {
+    "naive": '#f0f0f0',
     "scalar": '#f0f0f0',
 
     "autovec": '#bdbdbd',
@@ -43,6 +44,7 @@ VARIANT_COLOR_BLACK_WHITE = {
 }
 
 VARIANT_COLOR = {
+    "naive": '#ffffb2',
     "scalar": '#ffffb2',
 
     "autovec": '#fecc5c',
@@ -184,8 +186,9 @@ def clean_up_results(results, bm_suffix):
     results.name = results.name.str.replace(f"_{bm_suffix}", "")
     results.name = results.name.str.replace("<", "-")
     results.name = results.name.str.replace(">", "")
-    results.name = results.name.str.replace("naive_", "")
+    results.name = results.name.str.replace("naive_scalar", "naive")
     results.name = results.name.str.replace("autovec_scalar", "autovec")
+    results.name = results.name.str.replace("forced_scalar", "scalar")
     results.name = results.name.str.replace("_", "-")
     results.name = results.name.str.replace("vector", "vec")
     results.name = results.name.str.replace(" ", "")

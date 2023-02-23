@@ -6,11 +6,11 @@ from common import *
 
 
 def plot_compressed_scan(ax, data):
-    scalar_perf = data[data['name'].str.contains('scalar')]['runtime'].values[0]
+    naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
 
     for _, row in data.iterrows():
         variant = row['name']
-        ax.bar(variant, scalar_perf / row['runtime'], **BAR(variant))
+        ax.bar(variant, naive_perf / row['runtime'], **BAR(variant))
 
     ax.tick_params(axis='x', which=u'both',length=0)
     ax.set_xticks(range(len(data)))

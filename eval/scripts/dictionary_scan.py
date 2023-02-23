@@ -6,14 +6,14 @@ from common import *
 
 
 def plot_dictionary_scan(ax, data):
-    scalar_perf = data[data['name'].str.contains('scalar')]['runtime'].values[0]
+    naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
 
     for _, row in data.iterrows():
         variant = row['name']
-        ax.bar(variant, scalar_perf / row['runtime'], **BAR(variant))
+        ax.bar(variant, naive_perf / row['runtime'], **BAR(variant))
 
     # Clean up names for labels
-    data['name'] = data['name'].str.replace(r"((vec|x86)-\d+)-.*Strategy::(.*)", r"\1-\3", regex=True)
+    data['name'] = data['name'].str.replace(r"(vec|x86)(?:-avx512)?-(\d+)-.*Strategy::(.*)", r"\1-\2-\3", regex=True)
     data['name'] = data['name'].str.replace(r"SHUFFLE-MASK-\d+-BIT", "shuffle", regex=True)
     data['name'] = data['name'].str.replace(r"-COMPRESSSTORE", "-compress")
 
