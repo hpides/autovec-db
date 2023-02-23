@@ -111,7 +111,7 @@ BENCHMARK(BM_hashing<naive_hash>)->BM_ARGS;
 ///     AUTOVEC     ///
 ///////////////////////
 struct autovec_hash {
-  HashArray __attribute__((min_vector_width(512))) operator()(const HashArray& keys_to_hash, int required_bits) {
+  HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
 
 #if CLANG_COMPILER && defined(__has_feature)
@@ -140,7 +140,7 @@ struct vector_hash {
   using VecT = typename simd::GccVec<uint64_t, VECTOR_BYTES>::T;
   static_assert(sizeof(VecT) == VECTOR_BYTES);
 
-  HashArray __attribute__((min_vector_width(512))) operator()(const HashArray& keys_to_hash, int required_bits) {
+  HashArray operator()(const HashArray& keys_to_hash, int required_bits) {
     HashArray result;
     const VecT* vec_keys = reinterpret_cast<const VecT*>(keys_to_hash.data());
 
