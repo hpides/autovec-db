@@ -14,24 +14,43 @@ def diff_two_files(old_filename, new_filename):
     old_df = pd.read_csv(old_filename)
     new_df = pd.read_csv(new_filename)
 
-    old_df = old_df[old_df.name.str.contains("mean")]
-    new_df = new_df[new_df.name.str.contains("mean")]
+    assert set(old_df) == set(new_df), "input files have differing columns"
+
+    google_benchmark = {"name", "cpu_time"} <= set(old_df)
+    velox_benchmark = {"query", "duration"} <= set(old_df)
+
+    if google_benchmark:
+        # only include the mean of multiple runs
+        old_df = old_df[old_df.name.str.contains("mean")]
+        new_df = new_df[new_df.name.str.contains("mean")]
+        name_column = "name"
+        result_column = "cpu_time"
+    elif velox_benchmark:
+        name_column = "query"
+        result_column = "duration"
+    else:
+        assert False, "unexpected columns in input files"
 
     old_without_matching_new = []
     processed_old_names = []
 
-    longest_bm_name = max(old_df.name.map(len).max(), new_df.name.map(len).max())
+    longest_bm_name = max(old_df[name_column].map(len).max(), new_df[name_column].map(len).max())
 
     for old_row in old_df.itertuples():
-        new_row = new_df.loc[new_df["name"] == old_row.name]
+        bm_name = getattr(old_row, name_column)
+
+        new_row = new_df.loc[new_df[name_column] == bm_name]
         assert len(new_row) == 0 or len(new_row) == 1
 
         if new_row.empty:
             old_without_matching_new.append(old_row)
             continue
-        processed_old_names.append(old_row.name)
+        processed_old_names.append(bm_name)
 
-        change = (float(new_row.cpu_time) - float(old_row.cpu_time)) / float(old_row.cpu_time)
+        new_result = float(getattr(new_row, result_column))
+        old_result = float(getattr(old_row, result_column))
+
+        change = (new_result - old_result) / old_result
 
         color = colors.RESET
         if change <= -0.05:
@@ -41,9 +60,9 @@ def diff_two_files(old_filename, new_filename):
 
         change_percent_str = f"{change * 100:+.2f}%"
 
-        print(f"{color}{change_percent_str:7}{colors.RESET} {old_row.name:{longest_bm_name}}  ({float(old_row.cpu_time):.2f} -> {float(new_row.cpu_time):.2f})")
+        print(f"{color}{change_percent_str:7}{colors.RESET} {bm_name:{longest_bm_name}}  ({old_result:.2f} -> {new_result:.2f})")
 
-    new_without_matching_old = new_df[~new_df.name.isin(processed_old_names)]
+    new_without_matching_old = new_df[~new_df[name_column].isin(processed_old_names)]
 
     if old_without_matching_new:
         print(f"\n{colors.RED}UNMATCHED OLD{colors.RESET}")
