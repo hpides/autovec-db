@@ -10,6 +10,15 @@ class colors:
     RED = '\033[91m'
     RESET = '\033[0m'
 
+    def from_change(change):
+        if change <= -0.05:
+            return colors.GREEN
+        if change >= 0.05:
+            return colors.RED
+
+        return colors.RESET
+
+
 def diff_two_files(old_filename, new_filename):
     old_df = pd.read_csv(old_filename)
     new_df = pd.read_csv(new_filename)
@@ -33,8 +42,12 @@ def diff_two_files(old_filename, new_filename):
 
     old_without_matching_new = []
     processed_old_names = []
+    changes = []
 
     longest_bm_name = max(old_df[name_column].map(len).max(), new_df[name_column].map(len).max())
+
+    def change_as_percent_str(change):
+        return f"{change * 100:+.2f}%"
 
     for old_row in old_df.itertuples():
         bm_name = getattr(old_row, name_column)
@@ -51,28 +64,24 @@ def diff_two_files(old_filename, new_filename):
         old_result = float(getattr(old_row, result_column))
 
         change = (new_result - old_result) / old_result
+        changes.append(change)
 
-        color = colors.RESET
-        if change <= -0.05:
-            color = colors.GREEN
-        if change >= 0.05:
-            color = colors.RED
+        print(f"{colors.from_change(change)}{change_as_percent_str(change):7}{colors.RESET} {bm_name:{longest_bm_name}}  ({old_result:.2f} -> {new_result:.2f})")
 
-        change_percent_str = f"{change * 100:+.2f}%"
-
-        print(f"{color}{change_percent_str:7}{colors.RESET} {bm_name:{longest_bm_name}}  ({old_result:.2f} -> {new_result:.2f})")
+    average_change = sum(changes) / len(changes)
+    print(f"arithmetic mean of printed numbers: {colors.from_change(average_change)}{change_as_percent_str(average_change)}{colors.RESET}")
 
     new_without_matching_old = new_df[~new_df[name_column].isin(processed_old_names)]
 
     if old_without_matching_new:
         print(f"\n{colors.RED}UNMATCHED OLD{colors.RESET}")
         for row in old_without_matching_new:
-            print(f"{row.cpu_time:7.2f} {row.name}")
+            print(f"{getattr(row, result_column):7.2f} {getattr(row, name_column)}")
 
     if not new_without_matching_old.empty:
         print(f"\n{colors.RED}UNMATCHED NEW{colors.RESET}")
         for row in new_without_matching_old.itertuples():
-            print(f"{row.cpu_time:7.2f} {row.name}")
+            print(f"{getattr(row, result_column):7.2f} {getattr(row, name_column)}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diff google benchmark results in csv format')
