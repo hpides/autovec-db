@@ -35,7 +35,9 @@ if(OVERRIDE_ARCHITECTURE_FLAGS STREQUAL "")
     if (${CPU_MICROARCHITECTURE} STREQUAL "icelake")
       # LLVM uses only 256bit vectors due to downclocking policies. With icelake, this has been fixed, but LLVM doesn't
       # yet know about this -- see https://travisdowns.github.io/blog/2020/08/19/icl-avx512-freq.html
-      add_compile_options("-mprefer-vector-width=512")
+      # Clang's min_vector_width attribute doesn't work as documented (https://github.com/llvm/llvm-project/issues/60946)
+      # so we need to set compile flags for the whole compilation unit.
+      set(USE_512_VECTORS_FLAGS "-mprefer-vector-width=512")
     endif()
   endif()
 else()
@@ -106,3 +108,5 @@ add_benchmark(compressed_scan)
 add_benchmark(dictionary_scan)
 add_benchmark(hash_bucket)
 add_benchmark(hashing)
+
+target_compile_options(hashing PRIVATE ${USE_512_VECTORS_FLAGS})

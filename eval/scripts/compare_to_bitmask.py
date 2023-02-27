@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 import sys
 import os
 import re
@@ -5,11 +7,11 @@ from common import *
 
 
 def plot_compare_to_bitmask(ax, data, name):
-    scalar_perf = data[data['name'].str.contains('scalar')]['runtime'].values[0]
+    naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
 
     for _, row in data.iterrows():
         variant = row['name']
-        ax.bar(variant, scalar_perf / row['runtime'], **BAR(variant))
+        ax.bar(variant, naive_perf / row['runtime'], **BAR(variant))
 
     ax.set_title(re.sub(r"\d+B-as-(\d+x\d+B)", r"\1", name))
     ax.tick_params(axis='x', which=u'both',length=0)
@@ -21,7 +23,7 @@ def plot_compare_to_bitmask(ax, data, name):
     data['name'] = data['name'].str.replace(r"sized-(.+)?-vec", r"\1", regex=True)
 
     # ax.set_xticklabels(data['name'], rotation=60, rotation_mode='anchor', ha='right')
-    ax.set_xticklabels(data['name'], rotation=DEFAULT_LABEL_ROTATION)
+    ax.set_xticklabels(data['name'], rotation=75)
     ALIGN_ROTATED_X_LABELS(ax)
 
 
@@ -34,7 +36,7 @@ if __name__ == '__main__':
     m1_results = get_results(result_path, "compare_to_bitmask_m1.csv")
     m1_results = clean_up_results(m1_results, "bitmask")
 
-    fig, (x86_axes, m1_axes) = plt.subplots(2, 4, figsize=(DOUBLE_FIG_WIDTH, 2*DOUBLE_FIG_HEIGHT))
+    fig, (x86_axes, m1_axes) = plt.subplots(2, 4, figsize=(DOUBLE_FIG_WIDTH, 7))
     x86_16x1B_ax, x86_16x4B_ax, x86_64x1B_ax, x86_64x4B_ax = x86_axes
     m1_16x1B_ax, m1_16x4B_ax, m1_64x1B_ax, m1_64x4B_ax = m1_axes
 
@@ -47,7 +49,7 @@ if __name__ == '__main__':
             filter_bitset = ~sub_results.name.str.contains("bitset")
             plot_compare_to_bitmask(ax, sub_results[filter_name & filter_256 & filter_bitset], name)
 
-    fig.text(0, 0.5, "Speedup by factor x", rotation=90, va='center')
+    fig.text(0, 0.5, "Speedup", rotation=90, va='center')
     fig.text(0.5, 1, f"a) x86 {x86_arch.capitalize()}", ha='center')
     fig.text(0.5, 0.5, "b) M1", ha='center')
 

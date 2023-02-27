@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 
-if [ $# -ne 2 ]
+if [[ $# -lt 2 || $# -gt 3 ]]
 then
-    echo "Need to specify result and plot directory!"
+    echo "Usage: ./all_plots /path/to/results /path/to/output [x86_arch]"
+    echo "  with x86_arch = (icelake|cascadelake). Default: icelake,cascadelake"
     exit 1
 fi
 
 set -e
 RESULT_DIR=$1
 PLOT_DIR=$2
+X86_ARCH=${3:-"icelake,cascadelake"}
+X86_ARCH_LIST=(${X86_ARCH//,/ })
 
 export PYTHONPATH="$PWD/scripts"
 
-for script in scripts/*.py
+for script in scripts/compare_to_bitmask.py scripts/compressed_scan.py scripts/dictionary_scan.py scripts/hashing.py scripts/hash_bucket.py scripts/velox_tpch.py
 do
     echo "Running $script..."
-    python3 ${script} ${RESULT_DIR} ${PLOT_DIR} cascadelake > /dev/null
-    python3 ${script} ${RESULT_DIR} ${PLOT_DIR} icelake     > /dev/null
+    for x86_arch in ${X86_ARCH_LIST[@]}
+    do
+        python3 ${script} ${RESULT_DIR} ${PLOT_DIR} $x86_arch > /dev/null
+    done
 done
-
-open ${PLOT_DIR}/*.png

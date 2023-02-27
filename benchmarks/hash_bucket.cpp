@@ -140,7 +140,7 @@ inline uint64_t key_matches_from_fingerprint_matches_bit(HashBucket& bucket, uin
   return NO_MATCH;
 }
 
-struct naive_scalar_find {
+struct naive_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
     // Somewhat of a baseline (not really, since entries are stored as key-value pairs. I'd guess for this to be
     // auto-vectorizable, it would have to be struct-of-array layout (all keys, then all values).
@@ -152,9 +152,9 @@ struct naive_scalar_find {
     return NO_MATCH;
   }
 };
-BENCHMARK(BM_hash_bucket_get<naive_scalar_find>)->BM_ARGS;
+BENCHMARK(BM_hash_bucket_get<naive_find>)->BM_ARGS;
 
-struct naive_scalar_key_only_find {
+struct naive_key_only_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t /*fingerprint*/) {
     for (size_t i = 0; i < NUM_ENTRIES; ++i) {
       if (bucket.entries[i].key == key) {
@@ -164,9 +164,9 @@ struct naive_scalar_key_only_find {
     return NO_MATCH;
   }
 };
-BENCHMARK(BM_hash_bucket_get<naive_scalar_key_only_find>)->BM_ARGS;
+BENCHMARK(BM_hash_bucket_get<naive_key_only_find>)->BM_ARGS;
 
-struct autovec_scalar_find {
+struct autovec_find {
   uint64_t operator()(HashBucket& bucket, uint64_t key, uint8_t fingerprint) {
     // This code is okay-ish C++ for autovectorization.
     // However, clang is currently broken when extracting values from the 16-byte char array as a bigger int
@@ -183,7 +183,7 @@ struct autovec_scalar_find {
     return key_matches_from_fingerprint_matches_byte(bucket, key, reinterpret_cast<__uint128_t&>(matches[0]));
   }
 };
-BENCHMARK(BM_hash_bucket_get<autovec_scalar_find>)->BM_ARGS;
+BENCHMARK(BM_hash_bucket_get<autovec_find>)->BM_ARGS;
 
 struct vector_bytemask_find {
   using uint8x16 = simd::GccVec<uint8_t, 16>::T;
