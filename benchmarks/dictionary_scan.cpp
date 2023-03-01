@@ -803,9 +803,9 @@ BENCHMARK(BM_dictionary_scan<x86_256_avx2_scan_add>)->BM_ARGS;
 #endif
 
 #if AVX512_AVAILABLE
+BENCHMARK(BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESSSTORE>>)->BM_ARGS;
 BENCHMARK(BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESS_PLUS_STORE>>)->BM_ARGS;
-BENCHMARK(BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>)->BM_ARGS;
 #endif
 
 BENCHMARK_MAIN();

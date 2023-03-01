@@ -37,7 +37,7 @@ if __name__ == '__main__':
 
     x86_ax.set_ylabel("Speedup")
 
-    x86_ax.set_ylim(0, 1.2)
+    x86_ax.set_ylim(0, 1.01)
     x86_ax.set_yticks([0, 1])
 
     m1_ax.set_ylim(0, 2)

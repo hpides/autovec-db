@@ -63,6 +63,10 @@ name,iterations,real_time,cpu_time,time_unit,bytes_per_second,items_per_second,l
 "BM_dictionary_scan<x86_256_avx2_scan_add>/50_median",10,340.89,340.873,us,,,,,,3.25082e-10
 "BM_dictionary_scan<x86_256_avx2_scan_add>/50_stddev",10,1.40537,1.40746,us,,,,,,1.34226e-12
 "BM_dictionary_scan<x86_256_avx2_scan_add>/50_cv",10,412.675,413.31,us,,,,,,0.0041331
+"BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_mean",10,370.964,370.94,us,,,,,,3.53756e-10
+"BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_median",10,370.783,370.758,us,,,,,,3.53583e-10
+"BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_stddev",10,0.583098,0.583148,us,,,,,,5.56133e-13
+"BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_cv",10,157.185,157.208,us,,,,,,0.00157208
 "BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_mean",10,247.441,247.425,us,,,,,,2.35963e-10
 "BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_median",10,247.411,247.395,us,,,,,,2.35934e-10
 "BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_stddev",10,0.150373,0.154263,us,,,,,,1.47117e-13
@@ -71,7 +75,3 @@ name,iterations,real_time,cpu_time,time_unit,bytes_per_second,items_per_second,l
 "BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESS_PLUS_STORE>>/50_median",10,254.337,254.323,us,,,,,,2.42541e-10
 "BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESS_PLUS_STORE>>/50_stddev",10,0.38882,0.389323,us,,,,,,3.71288e-13
 "BM_dictionary_scan<x86_avx512_512_scan<X86512ScanStrategy::COMPRESS_PLUS_STORE>>/50_cv",10,152.922,153.13,us,,,,,,0.0015313
-"BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_mean",10,370.964,370.94,us,,,,,,3.53756e-10
-"BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_median",10,370.783,370.758,us,,,,,,3.53583e-10
-"BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_stddev",10,0.583098,0.583148,us,,,,,,5.56133e-13
-"BM_dictionary_scan<x86_avx512_128_scan<X86512ScanStrategy::COMPRESSSTORE>>/50_cv",10,157.185,157.208,us,,,,,,0.00157208
