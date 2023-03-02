@@ -36,9 +36,9 @@ if __name__ == '__main__':
         no_pred = ~df['name'].str.contains("predication")
         no_loop = ~df['name'].str.contains("loop")
         no_compress_plus_store = ~df['name'].str.contains("-PLUS-STORE")
-        only_512_8bit_shuffle = ~df['name'].str.contains("16-BIT") & ~df['name'].str.contains("4-BIT")
+        only_512_16bit_shuffle = ~df['name'].str.contains("8-BIT") & ~df['name'].str.contains("4-BIT")
         no_avx2 = ~df['name'].str.contains("avx2")
-        idx = no_pred & no_loop & only_512_8bit_shuffle & no_avx2 & no_compress_plus_store
+        idx = no_pred & no_loop & only_512_16bit_shuffle & no_avx2 & no_compress_plus_store
         return df[idx]
 
 
