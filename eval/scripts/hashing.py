@@ -27,10 +27,13 @@ if __name__ == '__main__':
     m1_results = get_results(result_path, "hashing_m1.csv")
     m1_results = clean_up_results(m1_results, "hash")
 
+    def filter_results(df):
+        return df[~df["name"].str.contains("vec-64")]
+
     fig, (x86_ax, m1_ax) = plt.subplots(1, 2, figsize=DOUBLE_FIG_SIZE)
 
-    plot_hashing(x86_ax, x86_results)
-    plot_hashing(m1_ax, m1_results)
+    plot_hashing(x86_ax, filter_results(x86_results))
+    plot_hashing(m1_ax, filter_results(m1_results))
 
     x86_ax.set_title(f"a) x86 {x86_arch.capitalize()}")
     m1_ax.set_title("b) M1")
