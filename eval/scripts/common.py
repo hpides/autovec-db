@@ -121,6 +121,22 @@ def BAR(variant):
         "lw": 2
     }
 
+# Kinda hacky way to plot this. We are basically plotting three bars.
+# 1) The regular bar
+# 2) An empty bar that gives us edgecolor=black with the hight of patched
+# 3) A patched bar with hatches with color of variant.
+# We need 2 and 3, as hatch color == edge color.
+def PLOT_PATCHED_BAR(ax, variant, patch_speedup):
+    hatch_bar_style = BAR(variant)
+    hatch_bar_style['edgecolor'] = hatch_bar_style['color']
+    hatch_bar_style['color'] = 'white'
+    hatch_bar_style['hatch'] = '//'
+    ax.bar(variant, patch_speedup, **hatch_bar_style, zorder=0.9)
+
+    base_bar_style = BAR(variant)
+    base_bar_style['color'] = 'none'
+    ax.bar(variant, patch_speedup, **base_bar_style, zorder=1.1)
+
 
 def RESIZE_TICKS(ax, x=FONT_SIZE, y=FONT_SIZE):
     for tick in ax.xaxis.get_major_ticks():
