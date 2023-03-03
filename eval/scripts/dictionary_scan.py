@@ -10,7 +10,18 @@ def plot_dictionary_scan(ax, data):
 
     for _, row in data.iterrows():
         variant = row['name']
-        ax.bar(variant, naive_perf / row['runtime'], **BAR(variant))
+        speedup = naive_perf / row['runtime']
+        bar_style = BAR(variant)
+
+        # Only plot with min. 10% diff to avoid plotting noise.
+        plotting_patched = 'patched' in row and (naive_perf / row['patched']) > (speedup * 1.1)
+        if plotting_patched:
+            patch_speedup = naive_perf / row['patched']
+            PLOT_PATCHED_BAR(ax, variant, patch_speedup)
+            bar_style['edgecolor'] = 'none'
+
+        # Plot regular bar.
+        ax.bar(variant, speedup, **bar_style)
 
     # Clean up names for labels
     data['name'] = data['name'].str.replace(r"(vec|x86)(?:-avx512)?-(\d+)-.*Strategy::(.*)", r"\1-\2-\3", regex=True)
@@ -31,6 +42,10 @@ if __name__ == '__main__':
 
     m1_results = get_results(result_path, "dictionary_scan_m1.csv")
     m1_results = clean_up_results(m1_results, "scan")
+
+    m1_patched_results = get_results(result_path, "dictionary_scan_m1_patched.csv")
+    m1_patched_results = clean_up_results(m1_patched_results, "scan")
+    m1_results['patched'] = m1_patched_results['runtime']
 
     def filter_results(df):
         no_pred = ~df['name'].str.contains("predication")
@@ -55,7 +70,7 @@ if __name__ == '__main__':
     x86_ax.set_ylim(0, 25)
     x86_ax.set_yticks(range(0, 26, 5))
 
-    m1_ax.set_ylim(0, 15)
+    m1_ax.set_ylim(0, 16)
     m1_ax.set_yticks(range(0, 16, 5))
 
 

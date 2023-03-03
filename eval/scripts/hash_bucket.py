@@ -12,12 +12,22 @@ def plot_hash_bucket(ax, data):
 
     for _, row in data.iterrows():
         variant = row['name']
-        ax.bar(variant, naive_perf / row['runtime'], **BAR(variant))
+        speedup = naive_perf / row['runtime']
+        bar_style = BAR(variant)
+
+        # Only plot with min. 10% diff to avoid plotting noise.
+        plotting_patched = 'patched' in row and (naive_perf / row['patched']) > (speedup * 1.1)
+        if plotting_patched:
+            patch_speedup = naive_perf / row['patched']
+            PLOT_PATCHED_BAR(ax, variant, patch_speedup)
+            bar_style['edgecolor'] = 'none'
+
+        # Plot regular bar.
+        ax.bar(variant, speedup, **bar_style)
 
     ax.tick_params(axis='x', which=u'both', length=0)
     ax.set_xticks(range(len(data)))
-    ax.set_xticklabels(data['name'], rotation=60, rotation_mode='anchor', ha='right')
-    # ax.set_xticklabels(data['name'], rotation=75)
+    ax.set_xticklabels(data['name'], rotation=50, rotation_mode='anchor', ha='right')
     ALIGN_ROTATED_X_LABELS(ax)
 
 
@@ -29,6 +39,10 @@ if __name__ == '__main__':
 
     m1_results = get_results(result_path, "hash_bucket_m1.csv")
     m1_results = clean_up_results(m1_results, "find")
+
+    m1_patched_results = get_results(result_path, "hash_bucket_m1_patched.csv")
+    m1_patched_results = clean_up_results(m1_patched_results, "find")
+    m1_results['patched'] = m1_patched_results['runtime']
 
     fig, (x86_ax, m1_ax) = plt.subplots(1, 2, figsize=DOUBLE_FIG_SIZE)
 
