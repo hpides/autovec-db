@@ -101,6 +101,18 @@ function(add_benchmark bm_name)
 
   # Keep the temporary files so we can inspect the generated assembly.
   target_compile_options(${bm_name} PRIVATE "-save-temps=obj" "-fverbose-asm")
+
+  if (${AUTOVEC_PATCHED_LLVM})
+    target_compile_options(${bm_name} PRIVATE "-isystem" "/Users/law/repos/llvm-project/llvm/cmake-build-debug/lib/clang/16/include")
+    target_include_directories(${bm_name} PRIVATE
+                               /Users/law/repos/llvm-project/llvm/cmake-build-debug/lib/clang/16/include
+#                               /opt/homebrew/opt/llvm/lib/clang/15.0.7/include
+                               /opt/homebrew/opt/llvm/include/c++/v1
+                               /Library/Developer/CommandLineTools/SDKs/MacOSX12.sdk/usr/include
+                               )
+    target_compile_options(${bm_name} PRIVATE "-Wno-undef" "-Wno-gnu-include-next" "-v")
+    target_compile_options(${bm_name} PRIVATE "-resource-dir" "/opt/homebrew/opt/llvm/lib/clang/15.0.7")
+  endif()
 endfunction()
 
 add_benchmark(compare_to_bitmask)
