@@ -38,15 +38,15 @@ def plot_velox_tpch(ax, compiler_results, xsimd_results):
 
 
 if __name__ == '__main__':
-    result_path, plot_dir, x86_arch = INIT(sys.argv)
+    result_path, plot_dir, x86_arch, compiler_flags = INIT(sys.argv)
 
     columns = ('query', 'duration')
 
-    x86_xsimd_results = get_results(result_path, f"velox_xsimd_tpch_sf1_x86_{x86_arch}.csv", columns)
-    x86_compiler_results = get_results(result_path, f"velox_compiler_simd_tpch_sf1_x86_{x86_arch}.csv", columns)
+    x86_xsimd_results = get_results(result_path, f"velox/{x86_arch}/velox_xsimd{compiler_flags}.csv", columns)
+    x86_compiler_results = get_results(result_path, f"velox/{x86_arch}/velox_compiler{compiler_flags}.csv", columns)
 
-    m1_xsimd_results = get_results(result_path, "velox_xsimd_tpch_sf1_m1.csv", columns)
-    m1_compiler_results = get_results(result_path, "velox_compiler_simd_tpch_sf1_m1.csv", columns)
+    m1_xsimd_results = get_results(result_path, "velox/m1/velox_xsimd.csv", columns)
+    m1_compiler_results = get_results(result_path, "velox/m1/velox_compiler.csv", columns)
 
     assert(len(x86_xsimd_results) == len(x86_compiler_results))
     assert(len(m1_xsimd_results) == len(m1_compiler_results))
@@ -70,5 +70,5 @@ if __name__ == '__main__':
         Y_GRID(ax)
         HIDE_BORDERS(ax)
 
-    plot_path = os.path.join(plot_dir, "velox_tpch")
+    plot_path = os.path.join(plot_dir, f"velox_tpch_{x86_arch}{compiler_flags}")
     SAVE_PLOT(plot_path)
