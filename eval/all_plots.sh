@@ -24,11 +24,13 @@ do
     done
 done
 
-COMPILER_FLAGS=("" "_mtune-native" "_march-skylake512_mtune-native" "_march-native_mtune-native")
+COMPILER_FLAGS=("_mtune-native" "_march-skylake512_mtune-native" "_march-native_mtune-native")
 
 echo "Plotting Velox..."
     for x86_arch in ${X86_ARCH_LIST[@]}
     do
+        python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch > /dev/null
+
         for flags in ${COMPILER_FLAGS[@]}
         do
             python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch $flags > /dev/null

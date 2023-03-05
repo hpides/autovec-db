@@ -110,13 +110,13 @@ def INIT(args):
         x86_arch = args[3]
         assert(x86_arch == 'icelake' or x86_arch == 'cascadelake')
 
+    compiler_flags = ""
     if len(args) == 5:
         compiler_flags = args[4]
         print(f"flags: {compiler_flags}")
         assert(compiler_flags in ['', '_mtune-native', '_march-skylake512_mtune-native', '_march-native_mtune-native'])
-        return result_path, plot_dir, x86_arch, compiler_flags
 
-    return result_path, plot_dir, x86_arch
+    return result_path, plot_dir, x86_arch, compiler_flags
 
 
 def BAR(variant):
