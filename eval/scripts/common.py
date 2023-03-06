@@ -97,20 +97,26 @@ def INIT_PLOT():
 
 def INIT(args):
     if len(args) < 3:
-        sys.exit("Need /path/to/results /path/to/plots [x86_arch]")
+        sys.exit("Need /path/to/results /path/to/plots [x86_arch] [compiler_flags]")
 
     result_path = args[1]
     plot_dir = args[2]
 
-    x86_arch = DEFAULT_X86_ARCH
-    if len(args) == 4:
-        x86_arch = args[3]
-        assert(x86_arch == 'icelake' or x86_arch == 'cascadelake')
-
     os.makedirs(plot_dir, exist_ok=True)
     INIT_PLOT()
 
-    return result_path, plot_dir, x86_arch
+    x86_arch = DEFAULT_X86_ARCH
+    if len(args) > 3:
+        x86_arch = args[3]
+        assert(x86_arch == 'icelake' or x86_arch == 'cascadelake')
+
+    compiler_flags = ""
+    if len(args) == 5:
+        compiler_flags = args[4]
+        print(f"flags: {compiler_flags}")
+        assert(compiler_flags in ['', '_mtune-native', '_march-skylake512_mtune-native', '_march-native_mtune-native'])
+
+    return result_path, plot_dir, x86_arch, compiler_flags
 
 
 def BAR(variant):
