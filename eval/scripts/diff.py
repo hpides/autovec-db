@@ -2,6 +2,7 @@
 import argparse
 import glob
 import os
+import math
 
 import pandas as pd
 
@@ -23,7 +24,8 @@ def diff_two_files(old_filename, new_filename):
     old_df = pd.read_csv(old_filename)
     new_df = pd.read_csv(new_filename)
 
-    assert set(old_df) == set(new_df), "input files have differing columns"
+    if set(old_df) != set(new_df):
+        print(f"\n{colors.RED}WARNING: input files have differing columns: {set(old_df).symmetric_difference(set(new_df))}{colors.RESET}\n")
 
     google_benchmark = {"name", "cpu_time"} <= set(old_df)
     velox_benchmark = {"query", "duration"} <= set(old_df)
@@ -69,7 +71,11 @@ def diff_two_files(old_filename, new_filename):
         print(f"{colors.from_change(change)}{change_as_percent_str(change):7}{colors.RESET} {bm_name:{longest_bm_name}}  ({old_result:.2f} -> {new_result:.2f})")
 
     average_change = sum(changes) / len(changes)
-    print(f"arithmetic mean of printed numbers: {colors.from_change(average_change)}{change_as_percent_str(average_change)}{colors.RESET}")
+    print(f"arithmetic mean: {colors.from_change(average_change)}{change_as_percent_str(average_change)}{colors.RESET}")
+
+    geo_mean_of_new_performance = math.exp(sum((math.log(1 + change) for change in changes)) / len(changes))
+    geo_mean_change = geo_mean_of_new_performance - 1
+    print(f"geometric mean: {colors.from_change(geo_mean_change)}{change_as_percent_str(geo_mean_change)}{colors.RESET}")
 
     new_without_matching_old = new_df[~new_df[name_column].isin(processed_old_names)]
 
