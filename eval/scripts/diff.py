@@ -21,14 +21,15 @@ class colors:
 
 
 def diff_two_files(old_filename, new_filename):
-    old_df = pd.read_csv(old_filename)
-    new_df = pd.read_csv(new_filename)
+    old_df = pd.read_csv(old_filename, skipinitialspace=True)
+    new_df = pd.read_csv(new_filename, skipinitialspace=True)
 
     if set(old_df) != set(new_df):
         print(f"\n{colors.RED}WARNING: input files have differing columns: {set(old_df).symmetric_difference(set(new_df))}{colors.RESET}\n")
 
     google_benchmark = {"name", "cpu_time"} <= set(old_df)
     velox_benchmark = {"query", "duration"} <= set(old_df)
+    processed_velox_benchmark = {"query", "mean"} <= set(old_df)
 
     if google_benchmark:
         # only include the mean of multiple runs
@@ -39,6 +40,9 @@ def diff_two_files(old_filename, new_filename):
     elif velox_benchmark:
         name_column = "query"
         result_column = "duration"
+    elif processed_velox_benchmark:
+        name_column = "query"
+        result_column = "mean"
     else:
         assert False, "unexpected columns in input files"
 
@@ -62,7 +66,7 @@ def diff_two_files(old_filename, new_filename):
             continue
         processed_old_names.append(bm_name)
 
-        new_result = float(getattr(new_row, result_column))
+        new_result = float(new_row[result_column])
         old_result = float(getattr(old_row, result_column))
 
         change = (new_result - old_result) / old_result
