@@ -2,7 +2,7 @@
 import argparse
 import os
 import re
-from statistics import mean, stdev
+from statistics import mean, stdev, StatisticsError
 from contextlib import redirect_stdout
 from collections import defaultdict
 
@@ -36,6 +36,9 @@ if __name__ == "__main__":
                 mean_ = mean(results)
                 min_ = min(results)
                 max_ = max(results)
-                stddev_ = stdev(results)
+                try:
+                    stddev_ = stdev(results)
+                except StatisticsError:
+                    stddev_ = 0
                 cv_percent = f"{stddev_ / mean_ * 100:.2f}%"
                 print(f"{query:5},{mean_:>8.2f},{min_:>8.2f},{max_:>8.2f},{stddev_:>8.2f},{cv_percent:>8}")

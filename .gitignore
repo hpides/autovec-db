@@ -1,5 +1,6 @@
 # results produced by running the docker image
 *.csv
+*.out
 
 # allow symlinking compare.py -> build_folder/deps/google_benchmark-src/tools/compare.py
 compare.py
