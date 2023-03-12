@@ -214,7 +214,6 @@ struct vector_128_scan {
       uint8x16{8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14},
   };
 
-  // Note: the masks are inverted, i.e., they are ordered as {nth, (n-1)th, (n-2)th, ..., 0th}.
   static constexpr uint32x4 BYTE_ALIGN_MASK = {3, 2, 1, 0};
   static constexpr uint8x16 AND_MASK = {255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0};
 
@@ -303,9 +302,8 @@ struct vector_512_scan {
     uint16x32{27, 28, 29, 30, 31, 32, 33, 34, 29, 30, 31, 32, 33, 34, 35, 36, 31, 32, 33, 34, 35, 36, 37, 38, 33, 34, 35, 36, 37, 38, 39, 40},
   };
 
-  // Note: ordered from nth, n-1th, ..., 0th byte. But input is also n down to 0, so this is from "right" to "left" in
-  // our print helper function. This is different from the AVX512 version, where we select for each 16 Byte chunk. That
-  // is why it is 0-6 for the values there. Here we select from the global byte ordering, so we need all 64 Bytes.
+  // This is different from the AVX512 version, where we select for each 16 Byte chunk. That is why it is 0-6 for the
+  // values there. Here we select from the global byte ordering, so we need all 64 Bytes.
   static constexpr uint8x64 SHUFFLE_MASK = { 0,  1,  2,  3,  1,  2,  3,  4,  2,  3,  4,  5,  3,  4,  5,  6,
                                             16, 17, 18, 19, 17, 18, 19, 20, 18, 19, 20, 21, 19, 20, 21, 22,
                                             32, 33, 34, 35, 33, 34, 35, 36, 34, 35, 36, 37, 35, 36, 37, 38,

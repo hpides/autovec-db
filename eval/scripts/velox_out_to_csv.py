@@ -19,7 +19,7 @@ if __name__ == "__main__":
             exit()
 
     results_by_query = defaultdict(list)
-    result_line_regex = re.compile(r"^(q\d+)\s+(\d+.\d+)ms\s+\d+.\d+\n$")
+    result_line_regex = re.compile(r"^(q\d+)\s+(\d+.\d+)(ms|s)\s+\d+.\d+(m)?\n$")
 
     with open(input_path, "r") as input_file:
         for line in input_file:
@@ -27,7 +27,11 @@ if __name__ == "__main__":
             if not match_result:
                 continue
 
-            results_by_query[match_result.group(1)].append(float(match_result.group(2)))
+            base_runtime = float(match_result.group(2))
+            scale = 1000 if match_result.group(3) == 's' else 1
+            runtime = base_runtime * scale
+
+            results_by_query[match_result.group(1)].append(runtime)
 
     with open(output_path, "w") as output_file:
         with redirect_stdout(output_file):
