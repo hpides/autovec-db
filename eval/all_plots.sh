@@ -25,15 +25,19 @@ do
 done
 
 COMPILER_FLAGS=("_mtune-native" "_march-skylake512_mtune-native" "_march-native_mtune-native")
+SCALE_FACTORS=("sf1" "sf10")
 
 echo "Plotting Velox..."
-    for x86_arch in ${X86_ARCH_LIST[@]}
+    for sf in ${SCALE_FACTORS[@]}
     do
-        python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch > /dev/null
-
-        for flags in ${COMPILER_FLAGS[@]}
+        for x86_arch in ${X86_ARCH_LIST[@]}
         do
-            python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch $flags > /dev/null
+            python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch $sf > /dev/null
+
+            for flags in ${COMPILER_FLAGS[@]}
+            do
+                python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch $sf $flags > /dev/null
+            done
         done
     done
 
