@@ -97,7 +97,7 @@ def INIT_PLOT():
 
 def INIT(args):
     if len(args) < 3:
-        sys.exit("Need /path/to/results /path/to/plots [x86_arch] [compiler_flags]")
+        sys.exit("Need /path/to/results /path/to/plots [x86_arch]")
 
     result_path = args[1]
     plot_dir = args[2]
@@ -110,13 +110,7 @@ def INIT(args):
         x86_arch = args[3]
         assert(x86_arch == 'icelake' or x86_arch == 'cascadelake')
 
-    compiler_flags = ""
-    if len(args) == 5:
-        compiler_flags = args[4]
-        print(f"flags: {compiler_flags}")
-        assert(compiler_flags in ['', '_mtune-native', '_march-skylake512_mtune-native', '_march-native_mtune-native'])
-
-    return result_path, plot_dir, x86_arch, compiler_flags
+    return result_path, plot_dir, x86_arch
 
 
 def BAR(variant):
@@ -191,7 +185,7 @@ def SAVE_PLOT(plot_path, img_types=IMG_TYPES):
 #######################################
 
 def get_results(result_dir, file_name, columns=('name', 'cpu_time')):
-    df = pd.read_csv(f"{result_dir}/{file_name}")
+    df = pd.read_csv(f"{result_dir}/{file_name}", skipinitialspace=True)
     df = df[[col for col in columns]]
     df = df.rename(columns={"cpu_time": "runtime"})
     return df
