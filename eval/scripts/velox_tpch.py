@@ -40,23 +40,22 @@ def plot_velox_tpch(ax, compiler_results, xsimd_results):
 if __name__ == '__main__':
     result_path, plot_dir, x86_arch = INIT(sys.argv)
 
+    sf = "sf1"
+    if len(sys.argv) > 4:
+        sf = sys.argv[4]
+        assert(sf in ['sf1', 'sf10'])
+
     compiler_flags = ""
-    if len(sys.argv) == 5:
-        compiler_flags = sys.argv[4]
+    if len(sys.argv) > 5:
+        compiler_flags = sys.argv[5]
         assert(compiler_flags in ['', '_mtune-native', '_march-skylake512_mtune-native', '_march-native_mtune-native'])
 
-    # TODO: temporarily different columns until results are in same format
-    x86_columns = ('query', 'duration')
-    x86_xsimd_results = get_results(result_path, f"velox/{x86_arch}/velox_xsimd{compiler_flags}.csv", x86_columns)
-    x86_compiler_results = get_results(result_path, f"velox/{x86_arch}/velox_compiler{compiler_flags}.csv", x86_columns)
+    columns = ('query', 'mean')
+    x86_xsimd_results = get_results(result_path, f"velox/{x86_arch}/{sf}/velox_xsimd{compiler_flags}.csv", columns)
+    x86_compiler_results = get_results(result_path, f"velox/{x86_arch}/{sf}/velox_compiler{compiler_flags}.csv", columns)
 
-    # TODO: temporary
-    x86_xsimd_results = x86_xsimd_results.rename(columns={"duration": "mean"})
-    x86_compiler_results = x86_compiler_results.rename(columns={"duration": "mean"})
-
-    m1_columns = ('query', 'mean')
-    m1_xsimd_results = get_results(result_path, "velox/m1/velox_xsimd.csv", m1_columns)
-    m1_compiler_results = get_results(result_path, "velox/m1/velox_compiler.csv", m1_columns)
+    m1_xsimd_results = get_results(result_path, f"velox/m1/{sf}/velox_xsimd.csv", columns)
+    m1_compiler_results = get_results(result_path, f"velox/m1/{sf}/velox_compiler.csv", columns)
 
     assert(len(x86_xsimd_results) == len(x86_compiler_results))
     assert(len(m1_xsimd_results) == len(m1_compiler_results))
@@ -80,5 +79,5 @@ if __name__ == '__main__':
         Y_GRID(ax)
         HIDE_BORDERS(ax)
 
-    plot_path = os.path.join(plot_dir, f"velox_tpch_{x86_arch}{compiler_flags}")
+    plot_path = os.path.join(plot_dir, f"velox_tpch_{sf}_{x86_arch}{compiler_flags}")
     SAVE_PLOT(plot_path)
