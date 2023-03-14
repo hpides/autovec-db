@@ -24,9 +24,12 @@ def plot_dictionary_scan(ax, data):
         ax.bar(variant, speedup, **bar_style)
 
     # Clean up names for labels
-    data['name'] = data['name'].str.replace(r"(vec|x86)(?:-avx512)?-(\d+)-.*Strategy::(.*)", r"\1-\2-\3", regex=True)
+    data['name'] = data['name'].str.replace(r"(vec)-(\d+)-.*Strategy::(.*)", r"\1-\2-\3", regex=True)
+    data['name'] = data['name'].str.replace(r"(avx512)-(\d+)-.*Strategy::(.*)", r"\1-\2-\3", regex=True)
     data['name'] = data['name'].str.replace(r"SHUFFLE-MASK-\d+-BIT", "shuffle", regex=True)
-    data['name'] = data['name'].str.replace(r"-COMPRESSSTORE", "-compress")
+
+    data['name'] = data['name'].str.replace(r"(avx512)-(\d+)-COMPRESSSTORE", r"vpcompressd-\2", regex=True)
+    # data['name'] = data['name'].str.replace(r"-COMPRESSSTORE", "-compress")
 
     ax.tick_params(axis='x', which=u'both',length=0)
     ax.set_xticks(range(len(data['name'])))

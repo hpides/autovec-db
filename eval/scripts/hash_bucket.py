@@ -8,8 +8,6 @@ from common import *
 def plot_hash_bucket(ax, data):
     naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
 
-    data['name'] = data['name'].str.replace(r"avx512", "512")
-
     for _, row in data.iterrows():
         variant = row['name']
         speedup = naive_perf / row['runtime']

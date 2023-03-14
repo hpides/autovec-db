@@ -53,6 +53,9 @@ VARIANT_COLOR = {
     "vec": '#fd8d3c',
 
     "x86": '#e31a1c',
+    "sse4": '#e31a1c',
+    "avx2": '#e31a1c',
+    "avx512": '#e31a1c',
     "neon": '#e31a1c',
 }
 
@@ -208,4 +211,12 @@ def clean_up_results(results, bm_suffix):
     results.name = results.name.str.replace("_", "-")
     results.name = results.name.str.replace("vector", "vec")
     results.name = results.name.str.replace(" ", "")
+
+    results.name = results.name.str.replace("x86-128", "sse4-128")
+    results.name = results.name.str.replace("x86-256", "avx2-256")
+    results.name = results.name.str.replace("x86-512", "avx512")
+    results.name = results.name.str.replace("x86-avx512", "avx512")
+
+    results.name = results.name.str.replace("x86-", "sse4-")
+
     return results
