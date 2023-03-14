@@ -54,8 +54,8 @@ if __name__ == '__main__':
     x86_xsimd_results = get_results(result_path, f"velox/{x86_arch}/{sf}/velox_xsimd{compiler_flags}.csv", columns)
     x86_compiler_results = get_results(result_path, f"velox/{x86_arch}/{sf}/velox_compiler{compiler_flags}.csv", columns)
 
-    m1_xsimd_results = get_results(result_path, f"velox/m1/{sf}/velox_xsimd.csv", columns)
-    m1_compiler_results = get_results(result_path, f"velox/m1/{sf}/velox_compiler.csv", columns)
+    m1_xsimd_results = get_results(result_path, f"velox/m1/{sf}/velox_xsimd_patched.csv", columns)
+    m1_compiler_results = get_results(result_path, f"velox/m1/{sf}/velox_compiler_patched.csv", columns)
 
     assert(len(x86_xsimd_results) == len(x86_compiler_results))
     assert(len(m1_xsimd_results) == len(m1_compiler_results))
