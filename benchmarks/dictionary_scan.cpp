@@ -144,11 +144,17 @@ struct vector_128_scan_shuffle {
   // The entire lookup table fits into a single cache line (4B x 16 = 64B).
   using ShuffleIndexT = uint8_t;
 
-  using ShuffleVec = simd::GccVec<ShuffleIndexT, 4 * sizeof(ShuffleIndexT)>::T;
+  // TODO: revert
+//  using ShuffleVec = simd::GccVec<ShuffleIndexT, 4 * sizeof(ShuffleIndexT)>::T;
+  using ShuffleVec = simd::GccVec<ShuffleIndexT, 16 * sizeof(ShuffleIndexT)>::T;
 
   static_assert(NUM_MATCHES_PER_VECTOR == 4);
-  alignas(64) static constexpr std::array<std::array<ShuffleIndexT, 4>, 16> MATCHES_TO_SHUFFLE_MASK =
-      lookup_table_for_compressed_offsets_by_comparison_result<4, ShuffleIndexT, static_cast<ShuffleIndexT>(-1)>();
+  // TODO: revert
+//  alignas(64) static constexpr std::array<std::array<ShuffleIndexT, 4>, 16> MATCHES_TO_SHUFFLE_MASK =
+//      lookup_table_for_compressed_offsets_by_comparison_result<4, ShuffleIndexT, static_cast<ShuffleIndexT>(-1)>();
+  static constexpr std::array<std::array<uint8_t, 16>, 16> MATCHES_TO_SHUFFLE_MASK =
+      element_shuffle_table_to_byte_shuffle_table<uint32_t, uint8_t, static_cast<uint8_t>(-1)>(
+          lookup_table_for_compressed_offsets_by_comparison_result<4, uint8_t, static_cast<uint8_t>(-1)>());
 
   RowId operator()(const DictColumn& column, DictEntry filter_val, MatchingRows* matching_rows) {
     const DictEntry* __restrict rows = column.aligned_data();
@@ -167,7 +173,7 @@ struct vector_128_scan_shuffle {
       assert(mask < 16 && "Mask cannot have more than 4 bits set.");
 
       const auto shuffle_mask = simd::load<ShuffleVec>(MATCHES_TO_SHUFFLE_MASK[mask].data());
-      const RowVec compressed_rows = simd::shuffle_vector(row_ids, shuffle_mask);
+      const RowVec compressed_rows = simd::shuffle_vector(reinterpret_cast<const ShuffleVec&>(row_ids), shuffle_mask);
       simd::store_unaligned(output + num_matching_rows, compressed_rows);
       num_matching_rows += std::popcount(mask);
     }

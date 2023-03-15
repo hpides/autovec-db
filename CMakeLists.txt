@@ -103,9 +103,10 @@ function(add_benchmark bm_name)
   target_compile_options(${bm_name} PRIVATE "-save-temps=obj" "-fverbose-asm")
 
   if (${AUTOVEC_PATCHED_LLVM})
-    target_compile_options(${bm_name} PRIVATE "-isystem" "/Users/law/repos/llvm-project/llvm/cmake-build-debug/lib/clang/16/include")
+    message(WARNING "Using patched LLVM!")
+    target_compile_options(${bm_name} PRIVATE "-isystem" "/Users/law/repos/llvm-project/llvm/cmake-build-release/lib/clang/17/include")
     target_include_directories(${bm_name} PRIVATE
-                               /Users/law/repos/llvm-project/llvm/cmake-build-debug/lib/clang/16/include
+                               /Users/law/repos/llvm-project/llvm/cmake-build-release/lib/clang/17/include
 #                               /opt/homebrew/opt/llvm/lib/clang/15.0.7/include
                                /opt/homebrew/opt/llvm/include/c++/v1
                                /Library/Developer/CommandLineTools/SDKs/MacOSX12.sdk/usr/include
