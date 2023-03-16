@@ -25,7 +25,7 @@ do
 done
 
 COMPILER_FLAGS=("_mtune-native" "_march-skylake512_mtune-native" "_march-native_mtune-native")
-SCALE_FACTORS=("sf1" "sf10")
+SCALE_FACTORS=("sf1")  # "sf10") SF10 has wrong results.
 
 echo "Plotting Velox..."
     for sf in ${SCALE_FACTORS[@]}
