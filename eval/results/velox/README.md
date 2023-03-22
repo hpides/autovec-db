@@ -1,6 +1,6 @@
 # Velox Results
 
-Results in here run on DES01 (cascadelake), nvram-06 (icelake), MacBook Pro (M1).
+The results in here were measured on DES01 (cascadelake), nvram-06 (icelake), and a MacBook Pro (M1).
 
 
 ### Docker/enroot
@@ -33,8 +33,8 @@ AVX512-usage can be explicitly disabled for code using xsimd by overriding `XSIM
 ### Running the benchmarks
 All benchmarking was done using `numactl -N 0` to pin execution to a single NUMA-node.
 For all benchmarks, we used the flags `--num_drivers=4 --minloglevel=5 --bm_min-iters=10 --bm_regex="q\d$|q1\d|q20|q22" --dynamic_cputhreadpoolexecutor=0 --dynamic_iothreadpoolexecutor=0 --cache_gb=10`.
-This enforces at least 10 iterations per tpch-query, removes some log-spam.
-Disabling the dynamic executors and using `cache_gb` gave us more consistent results.
+This enforces at least 10 iterations per tpch-query and removes some log-spam.
+Disabling the dynamic executors and using `cache_gb` gave us more consistent results across benchmark runs.
 
 We used the script `scripts/run_velox_benchmarks.sh` to run all benchmarks on all code-variant/native-flags combinations.
 Due to the submodule-nature of xsimd, the xsimd-march-native run has to be performed by hand.

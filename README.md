@@ -2,8 +2,10 @@ Microbenchmarks for our paper "Writing Less Platform-Specific SIMD Code in Datab
 
 This file focuses on the microbenchmarks. For reproducing the Velox measurements, we have [a separate README file](eval/results/velox/README.md).
 
-# Running the benchmarks
-Our measurements were done using a docker image based on ubuntu 22.10 with clang 15 and gcc 12.
+Our measurement results can be found in [`eval/results/`](eval/results/)
+
+## Running the benchmarks
+The measurements were done using a docker image based on ubuntu 22.10 with clang 15 and gcc 12.
 
 To repeat the measurements, run the following commands:
 ```bash
@@ -20,7 +22,10 @@ docker pull hpides/autovec-db
 docker run -it --privileged -v "$(pwd):/autovec-db" hpides/autovec-db
 ```
 
-The commands that run inside the container can be found at `scripts/docker_entrypoint.sh`
+The commands that run inside the container can be found at [`scripts/docker_entrypoint.sh`](scripts/docker_entrypoint.sh).
+
+The benchmarks log their results to `.csv` files that can be compared using our diff script at `eval/scripts/diff.py`.
+
 
 The docker image was built using
 ```bash
@@ -29,7 +34,7 @@ docker login
 docker push hpides/autovec-db
 ```
 
-# Plots and Results
+## Plotting the results
 
 This is a short guide on how to work with the results from the paper and generate the plots.
 
