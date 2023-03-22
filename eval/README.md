@@ -1,3 +1,7 @@
+Microbenchmarks for our paper "Writing Less Platform-Specific SIMD Code in Databases"
+
+This file focuses on the microbenchmarks. For reproducing the Velox measurements, we have [a separate README file](eval/results/velox/README.md).
+
 # Running the benchmarks
 Our measurements were done using a docker image based on ubuntu 22.10 with clang 15 and gcc 12.
 
@@ -15,6 +19,8 @@ docker pull hpides/autovec-db
 # note: we're using --privileged as we observed up to 5x slower measurements without it (likely a seccomp problem)
 docker run -it --privileged -v "$(pwd):/autovec-db" hpides/autovec-db
 ```
+
+The commands that run inside the container can be found at `scripts/docker_entrypoint.sh`
 
 The docker image was built using
 ```bash

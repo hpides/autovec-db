@@ -11,7 +11,6 @@ set -x
 # or, enroot:
 # enroot import docker://hpides/base_velox:v1
 # enroot create hpides+base_velox+v1.sqsh
-
 # numactl -N 0 enroot start -m $(pwd):/velox --rw hpides+base_velox+v1 /bin/bash
 # -> git config --global --add safe.directory /velox
 # -> ./run_benchmarks.sh 
