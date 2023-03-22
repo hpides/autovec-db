@@ -1,4 +1,4 @@
-# Velox Eval
+# Velox Results
 
 Results in here run on DES01 (cascadelake), nvram-06 (icelake), MacBook Pro (M1).
 

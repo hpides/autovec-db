@@ -35,7 +35,7 @@ This is a short guide on how to work with the results from the paper and generat
 
 ### Setup
 
-We use a basic Python + Pandas + Matplot setup. To create it, run the following commands in the [`eval/`](./) directory:
+We use a basic Python + Pandas + Matplot setup. To create it, run the following commands in the `eval` directory:
 
 ```shell
 $ python3 -m virtualenv venv
