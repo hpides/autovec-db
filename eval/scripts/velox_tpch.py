@@ -37,22 +37,33 @@ def plot_velox_tpch(ax, compiler_results, xsimd_results):
 
 
 
+
 if __name__ == '__main__':
     result_path, plot_dir, x86_arch = INIT(sys.argv)
 
     sf = "sf1"
     if len(sys.argv) > 4:
         sf = sys.argv[4]
-        assert(sf in ['sf1', 'sf10'])
+        assert(sf in ['sf1']) #, 'sf10']) sf10 is broken
 
-    compiler_flags = ""
+    x86_xsimd_flags = ""
     if len(sys.argv) > 5:
-        compiler_flags = sys.argv[5]
-        assert(compiler_flags in ['', '_mtune-native', '_march-skylake512_mtune-native', '_march-native_mtune-native'])
+        x86_xsimd_flags = sys.argv[5]
+        assert(x86_xsimd_flags in ['none', '_mtune-native', '_march-native_mtune-native'])
+        x86_xsimd_flags = "" if x86_xsimd_flags == 'none' else x86_xsimd_flags
+
+    x86_compiler_flags = x86_xsimd_flags
+    if len(sys.argv) > 6:
+        x86_compiler_flags = sys.argv[6]
+        assert(x86_compiler_flags in ['none', '_mtune-native', '_march-native_mtune-native'])
+        x86_compiler_flags = "" if x86_compiler_flags == 'none' else x86_compiler_flags
+
+    x86_xsimd_path =    f"velox/{x86_arch}/{sf}/velox_xsimd{x86_xsimd_flags}.csv"
+    x86_compiler_path = f"velox/{x86_arch}/{sf}/velox_compiler{x86_compiler_flags}.csv"
 
     columns = ('query', 'mean')
-    x86_xsimd_results = get_results(result_path, f"velox/{x86_arch}/{sf}/velox_xsimd{compiler_flags}.csv", columns)
-    x86_compiler_results = get_results(result_path, f"velox/{x86_arch}/{sf}/velox_compiler{compiler_flags}.csv", columns)
+    x86_xsimd_results = get_results(result_path, x86_xsimd_path, columns)
+    x86_compiler_results = get_results(result_path, x86_compiler_path, columns)
 
     m1_xsimd_results = get_results(result_path, f"velox/m1/{sf}/velox_xsimd_patched.csv", columns)
     m1_compiler_results = get_results(result_path, f"velox/m1/{sf}/velox_compiler_patched.csv", columns)
@@ -79,5 +90,5 @@ if __name__ == '__main__':
         Y_GRID(ax)
         HIDE_BORDERS(ax)
 
-    plot_path = os.path.join(plot_dir, f"velox_tpch_{sf}_{x86_arch}{compiler_flags}")
+    plot_path = os.path.join(plot_dir, f"velox_tpch_{x86_arch}_{sf}_xsimd{x86_xsimd_flags}_compiler{x86_compiler_flags}")
     SAVE_PLOT(plot_path)

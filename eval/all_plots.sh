@@ -24,20 +24,16 @@ do
     done
 done
 
-COMPILER_FLAGS=("_mtune-native" "_march-skylake512_mtune-native" "_march-native_mtune-native")
-SCALE_FACTORS=("sf1")  # "sf10") SF10 has wrong results.
+COMPILER_FLAGS=("none" "_mtune-native" "_march-native_mtune-native")
 
 echo "Plotting Velox..."
-    for sf in ${SCALE_FACTORS[@]}
+    for x86_arch in ${X86_ARCH_LIST[@]}
     do
-        for x86_arch in ${X86_ARCH_LIST[@]}
-        do
-            python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch $sf > /dev/null
+        python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch sf1 > /dev/null
 
-            for flags in ${COMPILER_FLAGS[@]}
-            do
-                python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch $sf $flags > /dev/null
-            done
+        for flags in ${COMPILER_FLAGS[@]}
+        do
+            python3 scripts/velox_tpch.py ${RESULT_DIR} ${PLOT_DIR} $x86_arch sf1 $flags $flags > /dev/null
         done
     done
 
