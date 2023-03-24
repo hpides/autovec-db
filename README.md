@@ -57,3 +57,8 @@ $ python3 scripts/<script_name>.py results/ /path/to/plot/dir
 
 The script will output a command that you can use to view the file.
 Generally, the plot is stored at `/path/to/plot/dir/<script_name>.[png|svg]`.
+
+You can also create all plots with:
+```shell
+$ ./all_plots.sh results /path/to/plot/dir
+```
