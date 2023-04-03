@@ -12,9 +12,14 @@ env:
 
 jobs:
   tidy:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
+    - name: Install clang-tidy
+      run: |
+        sudo apt update
+        sudo apt -y install clang-tidy-15 
+
     - uses: actions/checkout@v2
 
     - name: Run clang-tidy
