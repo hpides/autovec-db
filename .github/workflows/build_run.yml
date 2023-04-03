@@ -33,8 +33,8 @@ jobs:
     steps:
       - name: Install Clang
         run: |
-          deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main
-          deb-src http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main
+          add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main"
+          sudo apt-get update
           sudo apt-get install --yes --no-install-recommends clang-15 lld-15 libclang-rt-15-dev
 
       - uses: actions/checkout@v3
