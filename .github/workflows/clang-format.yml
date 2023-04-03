@@ -8,12 +8,12 @@ on:
 
 jobs:
   format:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v2
-    - uses: DoozyX/clang-format-lint-action@v0.14
+    - uses: DoozyX/clang-format-lint-action@v0.15
       with:
         source: 'benchmarks'
         extensions: 'hpp,cpp'
-        clangFormatVersion: 14
+        clangFormatVersion: 15
