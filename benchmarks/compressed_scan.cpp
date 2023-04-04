@@ -374,6 +374,153 @@ struct vector_512_scan {
 
 BENCHMARK(BM_scanning<vector_512_scan>)->BM_ARGS;
 
+template <size_t vector_width_bits, bool use_aligned_stores>
+struct vector_scan {
+  // load register-width-many-bytes of input data into vector register. This may contain up to 7 leading garbage bits,
+  // and thus have (regwidth)/9 or (regwidth - 7) / 9 many complete elements.
+  // We now iterate. Each iteration outputs at max regwidth/32 elements
+  //  -> We need (regwidth / 9) / (regwidth/32) = 32/9 = 3.5 iterations per input line
+  //  * Law: We want to use aligned stores for our output -> output 3 full rows, throw away remaining half row, be done
+  //  with it
+  //  * Alternative: Also store the remaining half-row, use unaligned stores.
+  //    * Possibly makes sense to have two variants for this?
+  //
+  // repeat 3/4 times, to get all elements:
+  //   * widen elements from 9 bit to 32bit by performing the usual steps:
+  //     1. shuffle consecutive 32bits from the input into 32-bit "lanes", each lane starting with the first byte to
+  //     contain a new 9-bit element
+  //     2. eliminate leading garbage bits by right-shifting the 32-bit lanes by incrementing numbers.
+  //       * For this, we have a shift vector that is {0, 1, 2, 3, ...}, which aligns all values
+  //         (since lane N+1 has 1 more leading garbage bit than line N in MOD-8 arithmetic)
+  //       * The first lane may not yet be perfectly aligned, but have N leading garbage bits. In this case, we
+  //       additionally need to right-shift each lane by N.
+  //         * This can be done using vector addition before the first shift
+  //
+  //         * Overall, each individual value needs to be shifted by a MOD-8 value, and the initial garbage is also a
+  //         MOD-8 value, so we have a maximum shift of 2*7=14 bits
+  //            * This is fine, since we're in 32-bit elements, so even with 14 leading garbage bits we have 18 bits
+  //            left, so no slicing happens
+  //
+  //     3. eliminate trailing garbage bits by AND-masking with constant (9 set bits per 32bit value)
+  //   * write the output
+  //
+
+  struct ReadState {
+    explicit ReadState(const uint64_t* read_ptr_arg, size_t num_tuples)
+        : read_ptr(reinterpret_cast<const std::byte*>(read_ptr_arg)), end_ptr(read_ptr + (num_tuples * 9 / 8)) {}
+
+    const std::byte* __restrict read_ptr;
+    const std::byte* __restrict end_ptr;
+    size_t leading_garbage_bits = 0;
+
+    [[nodiscard]] bool has_data() const noexcept { return read_ptr != end_ptr; }
+
+    void advance(size_t processed_elements) noexcept {
+      size_t processed_bits = 9 * processed_elements;
+      read_ptr += processed_bits / 8;
+      leading_garbage_bits += processed_bits % 8;
+
+      if (leading_garbage_bits >= 8) {
+        leading_garbage_bits -= 8;
+        read_ptr++;
+        assert(leading_garbage_bits < 8);
+      }
+    }
+  };
+
+  static constexpr size_t INPUT_ELEMENTS_PER_VECTOR = vector_width_bits / 9;
+  static constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = vector_width_bits / 32;
+
+  using InputVecT = typename simd::GccVec<unsigned char, vector_width_bits / 8>::UnalignedT;
+
+  using ByteVecT = typename simd::GccVec<unsigned char, vector_width_bits / 8>::T;
+  using Uint32VecT = typename simd::GccVec<uint32_t, vector_width_bits / 8>::T;
+
+  using AlignedOutputVecT = Uint32VecT;
+  using UnalignedOutputVecT = typename simd::GccVec<uint32_t, vector_width_bits / 8>::UnalignedT;
+  using OutputVecT = std::conditional_t<use_aligned_stores, AlignedOutputVecT, UnalignedOutputVecT>;
+
+  static constexpr auto shuffle_table_input_elements_to_lanes() {
+    // Given 9-bit packed input integers, provide the shuffles required to shuffle the input elements into 32 bit lanes,
+    // with leading / trailing garbage bytes. 4 shuffles are required since we expand 9-bit numbers to 32-bit numbers,
+    // so a vector register can only contain 9/32 = 0.28 of the input numbers, so we have to shuffle 4 times to process
+    // all input numbers
+    std::array<std::array<unsigned char, vector_width_bits / 8>, 4> result{};
+
+    for (size_t input_element = 0; input_element < INPUT_ELEMENTS_PER_VECTOR; ++input_element) {
+      size_t bits_before = 9 * input_element;
+      size_t bytes_before = bits_before / 8;
+
+      size_t output_array = input_element / OUTPUT_ELEMENTS_PER_VECTOR;
+      size_t output_element = input_element % OUTPUT_ELEMENTS_PER_VECTOR;
+
+      unsigned char* write_ptr = result[output_array].data() + 4 * output_element;
+      std::iota(write_ptr, write_ptr + 4, static_cast<unsigned char>(bytes_before));
+    }
+
+    return result;
+  }
+
+  static constexpr auto shift_values_for_lanes() {
+    // Given integers shuffled into lanes, get shift offsets per lane to shift out leading garbage bits (assuming the
+    // first element has 0 leading garbage bits)
+
+    // TODO: Check if this is constant-propagated enough. If not, make a table (as in the other implementations)
+    std::array<uint32_t, vector_width_bits / 8 / sizeof(uint32_t)> result{};
+    std::iota(result.begin(), result.end(), 0);
+    for (auto& el : result) {
+      el %= 8;
+    }
+    return result;
+  }
+
+  alignas(vector_width_bits / 8) static constexpr std::array SHUFFLE_TO_LANES = shuffle_table_input_elements_to_lanes();
+  alignas(vector_width_bits / 8) static constexpr std::array LANE_SHIFT_VALUES = shift_values_for_lanes();
+
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    static_assert(std::endian::native == std::endian::little,
+                  "big-endian systems need extra logic to handle uint64_t boundaries correctly.");
+
+    // The aligned-store variant writes 3 full output vectors and discards the remaining ~half output values,
+    // re-processes them in the next iteration
+    static_assert(NUM_TUPLES % (OUTPUT_ELEMENTS_PER_VECTOR * 3) == 0,
+                  "Would require loop epilogue with aligned stores");
+    // The unaligned-store variant writes all input elements
+    static_assert(NUM_TUPLES % INPUT_ELEMENTS_PER_VECTOR == 0, "Would require loop epilogue with unaligned stores");
+
+    ReadState read_state(input, num_tuples);
+    while (read_state.has_data()) {
+      ByteVecT input_vec = *reinterpret_cast<const InputVecT*>(read_state.read_ptr);
+
+      for (size_t i = 0; i < 3; ++i) {
+        ByteVecT shuffle_mask = *reinterpret_cast<const ByteVecT*>(SHUFFLE_TO_LANES[i].data());
+        Uint32VecT lanes = simd::shuffle_vector(input_vec, shuffle_mask);
+
+        Uint32VecT shift_values = *reinterpret_cast<const Uint32VecT*>(LANE_SHIFT_VALUES.data());
+        shift_values += static_cast<uint32_t>(read_state.leading_garbage_bits);
+        lanes >>= shift_values;
+
+        lanes &= ((1 << COMPRESS_BITS) - 1);
+
+        *reinterpret_cast<OutputVecT*>(output) = lanes;
+        output += OUTPUT_ELEMENTS_PER_VECTOR;
+      }
+      read_state.advance(3 * OUTPUT_ELEMENTS_PER_VECTOR);
+
+      // TODO: Also process+write the last half, advance output, advance read state
+      static_assert(use_aligned_stores, "unsupported");
+      if constexpr (!use_aligned_stores) {
+      }
+    }
+  }
+};
+// BENCHMARK(BM_scanning<vector_scan<128, false>>)->BM_ARGS;
+// BENCHMARK(BM_scanning<vector_scan<258, false>>)->BM_ARGS;
+// BENCHMARK(BM_scanning<vector_scan<512, false>>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan<128, true>>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan<256, true>>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan<512, true>>)->BM_ARGS;
+
 ///////////////////////
 ///      NEON       ///
 ///////////////////////
