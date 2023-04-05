@@ -100,7 +100,7 @@ void BM_scanning(benchmark::State& state) {
   }
 
   CompressedColumn compressed_column = compress_input(tuples);
-  DecompressedColumn decompressed_column{NUM_TUPLES};
+  DecompressedColumn decompressed_column{NUM_TUPLES + 64};
 
   // Do one pass to test that the code is correct.
   {
@@ -412,7 +412,10 @@ struct vector_scan {
     const std::byte* __restrict end_ptr;
     size_t leading_garbage_bits = 0;
 
-    [[nodiscard]] bool has_data() const noexcept { return read_ptr != end_ptr; }
+    [[nodiscard]] bool has_data() const noexcept {
+      // TODO: Technically UB to do pointer arithmetic past the end here.
+      return read_ptr < end_ptr;
+    }
 
     void advance(size_t processed_elements) noexcept {
       size_t processed_bits = 9 * processed_elements;
@@ -422,7 +425,6 @@ struct vector_scan {
       if (leading_garbage_bits >= 8) {
         leading_garbage_bits -= 8;
         read_ptr++;
-        assert(leading_garbage_bits < 8);
       }
     }
   };
@@ -435,9 +437,7 @@ struct vector_scan {
   using ByteVecT = typename simd::GccVec<unsigned char, vector_width_bits / 8>::T;
   using Uint32VecT = typename simd::GccVec<uint32_t, vector_width_bits / 8>::T;
 
-  using AlignedOutputVecT = Uint32VecT;
-  using UnalignedOutputVecT = typename simd::GccVec<uint32_t, vector_width_bits / 8>::UnalignedT;
-  using OutputVecT = std::conditional_t<use_aligned_stores, AlignedOutputVecT, UnalignedOutputVecT>;
+  using OutputVecT __attribute__((aligned(1 + (31 * static_cast<int>(use_aligned_stores))))) = Uint32VecT;
 
   static constexpr auto shuffle_table_input_elements_to_lanes() {
     // Given 9-bit packed input integers, provide the shuffles required to shuffle the input elements into 32 bit lanes,
@@ -464,7 +464,6 @@ struct vector_scan {
     // Given integers shuffled into lanes, get shift offsets per lane to shift out leading garbage bits (assuming the
     // first element has 0 leading garbage bits)
 
-    // TODO: Check if this is constant-propagated enough. If not, make a table (as in the other implementations)
     std::array<uint32_t, vector_width_bits / 8 / sizeof(uint32_t)> result{};
     std::iota(result.begin(), result.end(), 0);
     for (auto& el : result) {
@@ -494,12 +493,13 @@ struct vector_scan {
 
       constexpr size_t ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR = (9 * OUTPUT_ELEMENTS_PER_VECTOR) % 8;
 
+      // TODO: With 128-wide vectors and aligned stores, this is not as efficient, as we have alternative 0 and 4 bit
+      // padding at the start of the vectors. The handwritten 128-version combines two loop iterations to solve this.
       for (size_t i = 0; i < 3; ++i) {
         ByteVecT shuffle_mask = *reinterpret_cast<const ByteVecT*>(SHUFFLE_TO_LANES[i].data());
         Uint32VecT lanes = simd::shuffle_vector(input_vec, shuffle_mask);
 
         Uint32VecT shift_values = *reinterpret_cast<const Uint32VecT*>(LANE_SHIFT_VALUES.data());
-        // TODO: Efficient?
         shift_values +=
             static_cast<uint32_t>(read_state.leading_garbage_bits + ((i * ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR) % 8));
         lanes >>= shift_values;
@@ -510,18 +510,35 @@ struct vector_scan {
         output += OUTPUT_ELEMENTS_PER_VECTOR;
       }
 
-      read_state.advance(3 * OUTPUT_ELEMENTS_PER_VECTOR);
+      if constexpr (use_aligned_stores) {
+        read_state.advance(3 * OUTPUT_ELEMENTS_PER_VECTOR);
+      } else {
+        // Worst case: 128-bit vectors with 7 bit leading padding -> 121/9 = 13 input numbers, we processed 3*4=12
+        // elements -> last vector would only have one valid element
+        //
+        // With 512, we could have 503/9=55 input elements, and we'd process 3*16=48, so we'd have 7 elements left.
+        constexpr size_t VALID_ELEMENTS_LEFT = ((vector_width_bits - 7) / 9) - (3 * OUTPUT_ELEMENTS_PER_VECTOR);
 
-      // TODO: Also process+write the last half, advance output, advance read state
-      static_assert(use_aligned_stores, "unsupported");
-      if constexpr (!use_aligned_stores) {
+        ByteVecT shuffle_mask = *reinterpret_cast<const ByteVecT*>(SHUFFLE_TO_LANES[3].data());
+        Uint32VecT lanes = simd::shuffle_vector(input_vec, shuffle_mask);
+
+        Uint32VecT shift_values = *reinterpret_cast<const Uint32VecT*>(LANE_SHIFT_VALUES.data());
+        shift_values +=
+            static_cast<uint32_t>(read_state.leading_garbage_bits + ((3 * ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR) % 8));
+        lanes >>= shift_values;
+
+        lanes &= ((1 << COMPRESS_BITS) - 1);
+
+        *reinterpret_cast<OutputVecT*>(output) = lanes;
+        output += VALID_ELEMENTS_LEFT;
+        read_state.advance(3 * OUTPUT_ELEMENTS_PER_VECTOR + VALID_ELEMENTS_LEFT);
       }
     }
   }
 };
-// BENCHMARK(BM_scanning<vector_scan<128, false>>)->BM_ARGS;
-// BENCHMARK(BM_scanning<vector_scan<258, false>>)->BM_ARGS;
-// BENCHMARK(BM_scanning<vector_scan<512, false>>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan<128, false>>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan<258, false>>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan<512, false>>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan<128, true>>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan<256, true>>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan<512, true>>)->BM_ARGS;
