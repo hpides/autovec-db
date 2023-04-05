@@ -380,10 +380,9 @@ struct vector_scan {
   // and thus have (regwidth)/9 or (regwidth - 7) / 9 many complete elements.
   // We now iterate. Each iteration outputs at max regwidth/32 elements
   //  -> We need (regwidth / 9) / (regwidth/32) = 32/9 = 3.5 iterations per input line
-  //  * Law: We want to use aligned stores for our output -> output 3 full rows, throw away remaining half row, be done
+  //  * If we want to use aligned stores for our output -> output 3 full rows, throw away remaining half row, be done
   //  with it
-  //  * Alternative: Also store the remaining half-row, use unaligned stores.
-  //    * Possibly makes sense to have two variants for this?
+  //  * Alternatively: Also store the remaining half-row, use unaligned stores.
   //
   // repeat 3/4 times, to get all elements:
   //   * widen elements from 9 bit to 32bit by performing the usual steps:
@@ -489,15 +488,20 @@ struct vector_scan {
     static_assert(NUM_TUPLES % INPUT_ELEMENTS_PER_VECTOR == 0, "Would require loop epilogue with unaligned stores");
 
     ReadState read_state(input, num_tuples);
+
     while (read_state.has_data()) {
       ByteVecT input_vec = *reinterpret_cast<const InputVecT*>(read_state.read_ptr);
+
+      constexpr size_t ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR = (9 * OUTPUT_ELEMENTS_PER_VECTOR) % 8;
 
       for (size_t i = 0; i < 3; ++i) {
         ByteVecT shuffle_mask = *reinterpret_cast<const ByteVecT*>(SHUFFLE_TO_LANES[i].data());
         Uint32VecT lanes = simd::shuffle_vector(input_vec, shuffle_mask);
 
         Uint32VecT shift_values = *reinterpret_cast<const Uint32VecT*>(LANE_SHIFT_VALUES.data());
-        shift_values += static_cast<uint32_t>(read_state.leading_garbage_bits);
+        // TODO: Efficient?
+        shift_values +=
+            static_cast<uint32_t>(read_state.leading_garbage_bits + ((i * ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR) % 8));
         lanes >>= shift_values;
 
         lanes &= ((1 << COMPRESS_BITS) - 1);
@@ -505,6 +509,7 @@ struct vector_scan {
         *reinterpret_cast<OutputVecT*>(output) = lanes;
         output += OUTPUT_ELEMENTS_PER_VECTOR;
       }
+
       read_state.advance(3 * OUTPUT_ELEMENTS_PER_VECTOR);
 
       // TODO: Also process+write the last half, advance output, advance read state
