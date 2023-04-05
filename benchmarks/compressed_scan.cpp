@@ -537,7 +537,7 @@ struct vector_scan {
   }
 };
 BENCHMARK(BM_scanning<vector_scan<128, false>>)->BM_ARGS;
-BENCHMARK(BM_scanning<vector_scan<258, false>>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan<256, false>>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan<512, false>>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan<128, true>>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan<256, true>>)->BM_ARGS;
