@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <bitset>
@@ -230,29 +231,6 @@ An iteration is repeated 3 (aligned) or 4 (unaligned) times and performs these s
  2. Write the output
 */
 
-struct ReadState {
-  // Helper to keep track of reading position and leading garbage bits at current byte
-  explicit ReadState(const uint64_t* read_ptr_arg, size_t num_tuples)
-      : read_ptr(reinterpret_cast<const std::byte*>(read_ptr_arg)), end_ptr(read_ptr + (num_tuples * 9 / 8)) {}
-
-  const std::byte* __restrict read_ptr;
-  const std::byte* __restrict end_ptr;
-  size_t leading_garbage_bits = 0;
-
-  [[nodiscard]] bool has_data() const noexcept { return read_ptr < end_ptr; }
-
-  void advance(size_t processed_elements) noexcept {
-    size_t processed_bits = 9 * processed_elements;
-    read_ptr += processed_bits / 8;
-    leading_garbage_bits += processed_bits % 8;
-
-    if (leading_garbage_bits >= 8) {
-      leading_garbage_bits -= 8;
-      read_ptr++;
-    }
-  }
-};
-
 template <size_t vector_width_bits>
 static constexpr auto shuffle_table_input_elements_to_lanes() {
   // Given 9-bit packed input integers, provide the shuffles required to shuffle the input elements into 32 bit lanes,
@@ -291,18 +269,14 @@ static constexpr auto shift_values_for_lanes() {
   return result;
 }
 
-template <size_t vector_width_bits, bool use_aligned_stores>
+template <size_t vector_width_bits>
 struct vector_scan {
   static constexpr size_t VECTOR_WIDTH_BYTES = vector_width_bits / 8;
   static constexpr size_t INPUT_ELEMENTS_PER_VECTOR = vector_width_bits / 9;
   static constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = vector_width_bits / 32;
 
-  using InputVecT = typename simd::GccVec<unsigned char, VECTOR_WIDTH_BYTES>::UnalignedT;
-
   using ByteVecT = typename simd::GccVec<unsigned char, VECTOR_WIDTH_BYTES>::T;
   using Uint32VecT = typename simd::GccVec<uint32_t, VECTOR_WIDTH_BYTES>::T;
-
-  using OutputVecT __attribute__((aligned(1 + (31 * static_cast<int>(use_aligned_stores))))) = Uint32VecT;
 
   alignas(VECTOR_WIDTH_BYTES) static constexpr std::array SHUFFLE_TO_LANES =
       shuffle_table_input_elements_to_lanes<vector_width_bits>();
@@ -313,72 +287,70 @@ struct vector_scan {
     static_assert(std::endian::native == std::endian::little,
                   "big-endian systems need extra logic to handle uint64_t boundaries correctly.");
 
-    // The aligned-store variant writes 3 full output vectors and discards the remaining ~half output values,
-    // re-processes them in the next iteration
+    // We write 3 full output vectors and discards the remaining ~half output values.
     static_assert(NUM_TUPLES % (OUTPUT_ELEMENTS_PER_VECTOR * 3) == 0,
                   "Would require loop epilogue with aligned stores");
-    // The unaligned-store variant writes all input elements
-    static_assert(NUM_TUPLES % INPUT_ELEMENTS_PER_VECTOR == 0, "Would require loop epilogue with unaligned stores");
 
-    ReadState read_state(input, num_tuples);
+    constexpr size_t ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR = (9 * OUTPUT_ELEMENTS_PER_VECTOR) % 8;
+    constexpr size_t ADDITIONAL_GARBAGE_BITS_PER_BATCH = (3 * ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR) % 8;
 
-    while (read_state.has_data()) {
-      ByteVecT input_vec = *reinterpret_cast<const InputVecT*>(read_state.read_ptr);
+    // lowest number N with (N * ADDITIONAL_GARBAGE_BITS_PER_BATCH) % 8 == 0
+    // -> in mod-8: lowest N with N * ADDITIONAL_X == 0
+    // N = 1 / ADDITIONAL_X
+    constexpr size_t BATCHES_PER_ITERATION = [&]() -> size_t {
+      if constexpr (ADDITIONAL_GARBAGE_BITS_PER_BATCH != 0) {
+        static_assert(8 % ADDITIONAL_GARBAGE_BITS_PER_BATCH == 0, "Computation would be wrong here");
+        return 8 / ADDITIONAL_GARBAGE_BITS_PER_BATCH;
+      }
+      return 1;
+    }();
 
-      constexpr size_t ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR = (9 * OUTPUT_ELEMENTS_PER_VECTOR) % 8;
+    static_assert((ADDITIONAL_GARBAGE_BITS_PER_BATCH * BATCHES_PER_ITERATION) % 8 == 0, "Iteration end not aligned");
 
-      // With 128-wide vectors and aligned stores, this is not as efficient, as we have alternative 0 and 4 bit padding
-      // at the start of the vectors. The handwritten 128-version combines two loop iterations to solve this.
-      for (size_t i = 0; i < 3; ++i) {
-        ByteVecT shuffle_mask = *reinterpret_cast<const ByteVecT*>(SHUFFLE_TO_LANES[i].data());
-        Uint32VecT lanes = simd::shuffle_vector(input_vec, shuffle_mask);
+    constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = BATCHES_PER_ITERATION * 3 * OUTPUT_ELEMENTS_PER_VECTOR;
 
-        Uint32VecT shift_values = *reinterpret_cast<const Uint32VecT*>(LANE_SHIFT_VALUES.data());
-        shift_values +=
-            static_cast<uint32_t>(read_state.leading_garbage_bits + ((i * ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR) % 8));
-        lanes >>= shift_values;
+    size_t iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
+    assert(num_tuples % OUTPUT_ELEMENTS_PER_ITERATION == 0);
 
-        lanes &= ((1 << COMPRESS_BITS) - 1);
+    const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
 
-        *reinterpret_cast<OutputVecT*>(output) = lanes;
-        output += OUTPUT_ELEMENTS_PER_VECTOR;
+    for (size_t iteration = 0; iteration < iterations; ++iteration) {
+      for (size_t batch = 0; batch < BATCHES_PER_ITERATION; ++batch) {
+        auto input_vec = simd::load_unaligned<ByteVecT>(read_ptr);
+        read_ptr += 3 * (OUTPUT_ELEMENTS_PER_VECTOR)*9 / 8;
+
+        for (size_t i = 0; i < 3; ++i) {
+          auto shuffle_mask = simd::load<ByteVecT>(SHUFFLE_TO_LANES[i].data());
+          Uint32VecT lanes = simd::shuffle_vector(input_vec, shuffle_mask);
+
+          auto shift_values = simd::load<Uint32VecT>(LANE_SHIFT_VALUES.data());
+          lanes >>= shift_values;
+          lanes >>= batch * ADDITIONAL_GARBAGE_BITS_PER_BATCH + ((i * ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR) % 8);
+
+          lanes &= ((1 << COMPRESS_BITS) - 1);
+
+          simd::store(output, lanes);
+          output += OUTPUT_ELEMENTS_PER_VECTOR;
+        }
       }
 
-      if constexpr (use_aligned_stores) {
-        read_state.advance(3 * OUTPUT_ELEMENTS_PER_VECTOR);
-      } else {
-        // Worst case: 128-bit vectors with 7 bit leading padding -> 121/9 = 13 input numbers, we processed 3*4=12
-        // elements -> last vector would only have one valid element
-        //
-        // With 512, we could have 503/9=55 input elements, and we'd process 3*16=48, so we'd have 7 elements left.
-        constexpr size_t VALID_ELEMENTS_LEFT = ((vector_width_bits - 7) / 9) - (3 * OUTPUT_ELEMENTS_PER_VECTOR);
-
-        ByteVecT shuffle_mask = *reinterpret_cast<const ByteVecT*>(SHUFFLE_TO_LANES[3].data());
-        Uint32VecT lanes = simd::shuffle_vector(input_vec, shuffle_mask);
-
-        Uint32VecT shift_values = *reinterpret_cast<const Uint32VecT*>(LANE_SHIFT_VALUES.data());
-        shift_values +=
-            static_cast<uint32_t>(read_state.leading_garbage_bits + ((3 * ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR) % 8));
-        lanes >>= shift_values;
-
-        lanes &= ((1 << COMPRESS_BITS) - 1);
-
-        *reinterpret_cast<OutputVecT*>(output) = lanes;
-        output += VALID_ELEMENTS_LEFT;
-        read_state.advance(3 * OUTPUT_ELEMENTS_PER_VECTOR + VALID_ELEMENTS_LEFT);
+      if constexpr(BATCHES_PER_ITERATION != 1) {
+        // If we have multiple batches per iteration, we do that because a single iteration builds up leading garbage
+        // bits, so the batches build up a full byte of garbage.
+        read_ptr++;
       }
     }
   }
 };
-BENCHMARK(BM_scanning<vector_scan<128, false>>)->BM_ARGS;
-BENCHMARK(BM_scanning<vector_scan<256, false>>)->BM_ARGS;
-BENCHMARK(BM_scanning<vector_scan<512, false>>)->BM_ARGS;
-BENCHMARK(BM_scanning<vector_scan<128, true>>)->BM_ARGS;
-BENCHMARK(BM_scanning<vector_scan<256, true>>)->BM_ARGS;
-BENCHMARK(BM_scanning<vector_scan<512, true>>)->BM_ARGS;
-
+BENCHMARK(BM_scanning<vector_scan<128>>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan<256>>)->BM_ARGS;
+BENCHMARK(BM_scanning<vector_scan<512>>)->BM_ARGS;
 
 struct vector_128_scan {
+  static constexpr size_t VECTOR_WIDTH_BYTES = 128 / 8;
+  static constexpr size_t INPUT_ELEMENTS_PER_VECTOR = 128 / 9;
+  static constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = 128 / 32;
+
   static constexpr size_t VALUES_PER_ITERATION = 4;
   static constexpr size_t ITERATIONS_PER_BATCH = (16ul * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;  // 3
   static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;            // 12
