@@ -518,6 +518,63 @@ struct x86_128_scan {
 
 BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
 
+struct x86_avx2_scan {
+  static constexpr size_t OUTPUT_ELEMENTS_PER_128_VECTOR = 4;  // 32B / 4B-per-element
+  static constexpr size_t ADDITIONAL_GARBAGE_BITS_PER_128_SUBVECTOR = (9 * OUTPUT_ELEMENTS_PER_128_VECTOR) % 8;
+
+  alignas(16) static constexpr std::array SHUFFLE_TO_LANES = shuffle_table_input_elements_to_lanes<128>();
+  alignas(16) static constexpr std::array LANE_SHIFT_VALUES = shift_values_for_lanes<128>();
+
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = 3ul * 2 * OUTPUT_ELEMENTS_PER_128_VECTOR;
+    static_assert(NUM_TUPLES % OUTPUT_ELEMENTS_PER_ITERATION == 0, "Would require loop epilogue");
+    static_assert(9 * (2 * OUTPUT_ELEMENTS_PER_128_VECTOR) % 8 == 0, "Processing step causes leading garbage bits");
+
+    size_t iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
+
+    const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
+
+    const __m128i shift_values = _mm_load_si128(reinterpret_cast<const __m128i*>(LANE_SHIFT_VALUES.data()));
+    const __m128i shift_values_plus_4 = _mm_add_epi32(shift_values, _mm_set1_epi32(4));
+    const __m128i and_mask = _mm_set1_epi32((1 << COMPRESS_BITS) - 1);
+
+    for (size_t iteration = 0; iteration < iterations; ++iteration) {
+      // With AVX2, we can't shuffle across 128bit lanes, so we fall back to using two 128-bit registers.
+      const __m128i input_vec1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr));
+      // For input_vec1 (128 bits), we will output 3*4=12 elements, processing 12*9=108 bits=13.5 bytes.
+      // For the second vector, we have to process the "dangling" half byte and the next few bytes.
+      const __m128i input_vec2 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr + 13));
+      read_ptr += 3ul * 2 * OUTPUT_ELEMENTS_PER_128_VECTOR * 9 / 8;
+
+      for (size_t i = 0; i < 3; ++i) {
+        const __m128i shuffle_mask = _mm_load_si128(reinterpret_cast<const __m128i*>(SHUFFLE_TO_LANES[i].data()));
+
+        const __m128i lanes1 = _mm_shuffle_epi8(input_vec1, shuffle_mask);
+        const __m128i lanes2 = _mm_shuffle_epi8(input_vec2, shuffle_mask);
+
+        // TODO: Falsch. Bei i=1 haben wir ja vorher ein halbes byte übrig gelassen -> jetzt ist am Anfang des ersten
+        // Byte 4 bit quatsch -> müssen +4 shufflen (-> Shuffle_logik nochmal von vector_scan übernehmen?)
+        __m128i shifted_lanes1 = _mm_srlv_epi32(lanes1, shift_values);
+        __m128i shifted_lanes2 = _mm_srlv_epi32(lanes2, shift_values_plus_4);
+
+        shifted_lanes1 =
+            _mm_srli_epi32(shifted_lanes1, static_cast<int>(i * ADDITIONAL_GARBAGE_BITS_PER_128_SUBVECTOR) % 8);
+        shifted_lanes2 =
+            _mm_srli_epi32(shifted_lanes2, static_cast<int>(i * ADDITIONAL_GARBAGE_BITS_PER_128_SUBVECTOR) % 8);
+
+        const __m128i result1 = _mm_and_si128(shifted_lanes1, and_mask);
+        const __m128i result2 = _mm_and_si128(shifted_lanes2, and_mask);
+
+        _mm_store_si128(reinterpret_cast<__m128i*>(output + i * OUTPUT_ELEMENTS_PER_128_VECTOR), result1);
+        _mm_store_si128(reinterpret_cast<__m128i*>(output + (i + 3) * OUTPUT_ELEMENTS_PER_128_VECTOR), result2);
+      }
+
+      output += 3ul * 2 * OUTPUT_ELEMENTS_PER_128_VECTOR;
+    }
+  }
+};
+BENCHMARK(BM_scanning<x86_avx2_scan>)->BM_ARGS;
+
 struct x86_pdep_scan {
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     // approach as found in
