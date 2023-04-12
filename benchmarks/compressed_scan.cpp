@@ -205,7 +205,7 @@ The vector variants all follow this approach:
   thus have (regwidth)/9 or (regwidth - 7) / 9 many complete elements.
 * Iterate over the values in the input vector. Each iteration outputs at max regwidth/32 elements. We need (regwidth /
   9) / (regwidth/32) = 32/9 = 3.5 iterations per input line.
-* If we want to use aligned stores for our output -> output 3 full vector, throw away remaining half row.
+* If we want to use aligned stores for our output -> output 3 full vectors, throw away remaining half row.
 * Alternatively: Also widen and store the remaining half vector, use unaligned stores.
 
 An iteration is repeated 3 (aligned) or 4 (unaligned) times and performs these steps:
@@ -215,10 +215,9 @@ An iteration is repeated 3 (aligned) or 4 (unaligned) times and performs these s
 
    2. Eliminate leading garbage bits by right-shifting the 32-bit lanes by incrementing numbers.
      * For this, we have a shift vector that is {0, 1, 2, 3, ...}, which aligns all values
-       (since lane N+1 has 1 more leading garbage bit than lane N in MOD-8 arithmetic)
+       (since lane N+1 has 1 more leading garbage bit than lane N)
      * The first lane may not yet be perfectly aligned, but have N leading garbage bits. In this case, we
        additionally need to right-shift each lane by N.
-       * This can be done using vector addition before the first shift.
        * Overall, each individual value needs to be shifted by a MOD-8 value, and the initial garbage is also a MOD-8
          value, so we have a maximum shift of 2*7=14 bits. This is fine, since we're in 32-bit elements, so even with 14
          leading garbage bits we have 18 bits left, so no slicing happens.
@@ -237,7 +236,7 @@ static constexpr auto shuffle_table_input_elements_to_lanes() {
   // with leading / trailing garbage bits. 4 shuffles are required since we expand 9-bit numbers to 32-bit numbers, so a
   // vector register can only contain 9/32 = 0.28 of the input numbers, so we have to shuffle 4 times to process all
   // input numbers.
-  std::array<std::array<unsigned char, vector_width_bits / 8>, 4> result{};
+  std::array<std::array<uint8_t, vector_width_bits / 8>, 4> result{};
 
   constexpr size_t INPUT_ELEMENTS_PER_VECTOR = vector_width_bits / 9;
   constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = vector_width_bits / 32;
@@ -250,7 +249,7 @@ static constexpr auto shuffle_table_input_elements_to_lanes() {
     size_t output_element = input_element % OUTPUT_ELEMENTS_PER_VECTOR;
 
     unsigned char* write_ptr = result[output_array].data() + 4 * output_element;
-    std::iota(write_ptr, write_ptr + 4, static_cast<unsigned char>(bytes_before));
+    std::iota(write_ptr, write_ptr + 4, static_cast<uint8_t>(bytes_before));
   }
 
   return result;
@@ -287,16 +286,10 @@ struct vector_scan {
     static_assert(std::endian::native == std::endian::little,
                   "big-endian systems need extra logic to handle uint64_t boundaries correctly.");
 
-    // We write 3 full output vectors and discards the remaining ~half output values.
-    static_assert(NUM_TUPLES % (OUTPUT_ELEMENTS_PER_VECTOR * 3) == 0,
-                  "Would require loop epilogue with aligned stores");
-
     constexpr size_t ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR = (9 * OUTPUT_ELEMENTS_PER_VECTOR) % 8;
     constexpr size_t ADDITIONAL_GARBAGE_BITS_PER_BATCH = (3 * ADDITIONAL_GARBAGE_BITS_PER_SUBVECTOR) % 8;
 
-    // lowest number N with (N * ADDITIONAL_GARBAGE_BITS_PER_BATCH) % 8 == 0
-    // -> in mod-8: lowest N with N * ADDITIONAL_X == 0
-    // N = 1 / ADDITIONAL_X
+    // lowest power of two N with (N * ADDITIONAL_GARBAGE_BITS_PER_BATCH) % 8 == 0
     constexpr size_t BATCHES_PER_ITERATION = [&]() -> size_t {
       if constexpr (ADDITIONAL_GARBAGE_BITS_PER_BATCH != 0) {
         static_assert(8 % ADDITIONAL_GARBAGE_BITS_PER_BATCH == 0, "Computation would be wrong here");
@@ -306,11 +299,11 @@ struct vector_scan {
     }();
 
     static_assert((ADDITIONAL_GARBAGE_BITS_PER_BATCH * BATCHES_PER_ITERATION) % 8 == 0, "Iteration end not aligned");
-
+    // We write 3 full output vectors and discards the remaining ~half output values.
     constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = BATCHES_PER_ITERATION * 3 * OUTPUT_ELEMENTS_PER_VECTOR;
+    static_assert(NUM_TUPLES % OUTPUT_ELEMENTS_PER_ITERATION == 0, "Would require loop epilogue");
 
     size_t iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
-    assert(num_tuples % OUTPUT_ELEMENTS_PER_ITERATION == 0);
 
     const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
 
@@ -338,7 +331,7 @@ struct vector_scan {
         }
       }
 
-      if constexpr(BATCHES_PER_ITERATION != 1) {
+      if constexpr (BATCHES_PER_ITERATION != 1) {
         // If we have multiple batches per iteration, we do that because a single iteration builds up leading garbage
         // bits, so the batches build up a full byte of garbage.
         read_ptr++;
@@ -454,7 +447,7 @@ struct x86_128_scan {
   template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
   inline void decompress_iteration(__m128i batch_lane, CallbackFn callback) {
     const std::array shuffle_masks = {
-        _mm_set_epi8(6, 5, 4, 3, 5, 4, 3, 2, 5, 3, 2, 1, 3, 2, 1, 0),
+        _mm_set_epi8(6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0),
         _mm_set_epi8(10, 9, 8, 7, 9, 8, 7, 6, 8, 7, 6, 5, 7, 6, 5, 4),
         _mm_set_epi8(14, 13, 12, 11, 13, 12, 11, 10, 12, 11, 10, 9, 11, 10, 9, 8),
     };
