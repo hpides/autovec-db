@@ -602,7 +602,7 @@ struct x86_512_scan {
         lane = _mm512_shuffle_epi8(lane, shuffle_mask);
         lane = _mm512_srlv_epi32(lane, shift_mask);
         lane = _mm512_and_epi32(lane, and_mask);
-        _mm512_storeu_si512(reinterpret_cast<__m512i*>(output), lane);
+        _mm512_store_si512(reinterpret_cast<__m512i*>(output), lane);
         output += OUTPUT_ELEMENTS_PER_VECTOR;
       }
     }
