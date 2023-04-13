@@ -594,10 +594,10 @@ struct x86_512_scan {
     const size_t num_iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
     const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
 
-    for(size_t iteration = 0; iteration < num_iterations; ++iteration) {
+    for (size_t iteration = 0; iteration < num_iterations; ++iteration) {
       const __m512i input_vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(read_ptr));
       read_ptr += OUTPUT_ELEMENTS_PER_ITERATION * 9 / 8;
-      for(int i = 0; i < 3; ++i) {
+      for (int i = 0; i < 3; ++i) {
         __m512i lane = _mm512_permutexvar_epi16(lane_shuffle_masks[i], input_vec);
         lane = _mm512_shuffle_epi8(lane, shuffle_mask);
         lane = _mm512_srlv_epi32(lane, shift_mask);
