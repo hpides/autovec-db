@@ -60,7 +60,6 @@ Checks: >
   -portability-simd-intrinsics,
   -readability-magic-numbers,
   -readability-uppercase-literal-suffix,
-  -misc-non-private-member-variables-in-classes,
 
   -misc-confusable-identifiers,
 
@@ -108,7 +107,6 @@ Checks: >
 # portability-simd-intrinsics                         We need them
 # readability-magic-numbers                           Shuffle masks and vector types often use these, no way around it.
 # readability-uppercase-literal-suffix                We use lowercase suffixes
-# misc-non-private-member-variables-in-classes        Sometimes useful
 
 ## We would like to enable, but can't
 # misc-confusable-identifiers                         This check increases the runtime by approx. 10x. Upstream issue https://github.com/llvm/llvm-project/issues/57527

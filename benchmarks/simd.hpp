@@ -205,12 +205,12 @@ inline VectorT shuffle_vector(VectorT vec, MaskT mask) {
 }
 
 template <typename VectorT>
-constexpr inline VectorT load(const void* ptr) {
+inline VectorT load(const void* ptr) {
   return *reinterpret_cast<const VectorT*>(ptr);
 }
 
 template <typename VectorT>
-constexpr inline VectorT load_unaligned(const void* ptr) {
+inline VectorT load_unaligned(const void* ptr) {
   using UnalignedVectorT __attribute__((aligned(1))) = VectorT;
   return *reinterpret_cast<const UnalignedVectorT*>(ptr);
 }
