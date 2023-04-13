@@ -349,7 +349,6 @@ BENCHMARK(BM_scanning<vector_scan<512>>)->BM_ARGS;
 #if defined(__aarch64__)
 struct neon_scan {
   static constexpr size_t VALUES_PER_ITERATION = 4;
-  static constexpr size_t ITERATIONS_PER_BATCH = (16 * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
   static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;
   static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
   static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
@@ -437,15 +436,12 @@ BENCHMARK(BM_scanning<neon_scan>)->BM_ARGS;
 ///       x86       ///
 ///////////////////////
 #if defined(__x86_64__)
-struct x86_128_scan {
-  static constexpr size_t VALUES_PER_ITERATION = 4;
-  static constexpr size_t ITERATIONS_PER_BATCH = (16ul * 8) / COMPRESS_BITS / VALUES_PER_ITERATION;
-  static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;
-  static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
-  static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
 
-  template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
-  inline void decompress_iteration(__m128i batch_lane, CallbackFn callback) {
+struct x86_128_scan {
+  static constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = 4;  // 16B / 4B-per-element
+  static constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = 3ul * 2 * OUTPUT_ELEMENTS_PER_VECTOR;
+
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     const std::array shuffle_masks = {
         _mm_set_epi8(6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0),
         _mm_set_epi8(10, 9, 8, 7, 9, 8, 7, 6, 8, 7, 6, 5, 7, 6, 5, 4),
@@ -455,64 +451,36 @@ struct x86_128_scan {
     const __m128i byte_align_mask = _mm_set_epi32(1 << 0, 1 << 1, 1 << 2, 1 << 3);
     const __m128i and_mask = _mm_set_epi8(0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1);
 
-    TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
+    const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
 
-    __m128i lane = _mm_shuffle_epi8(batch_lane, shuffle_masks[ITER]);
-    TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
+    const size_t num_iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
+    for (size_t iteration = 0; iteration < num_iterations; ++iteration) {
+      __m128i input_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr));
 
-    // We need to use a multiply here instead of a shift, as _mm_sllv_epi32 is not available until AVX2.
-    lane = _mm_mullo_epi32(lane, byte_align_mask);
-    TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
-
-    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the
-    // fourth by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so
-    // on. So we need to shift by 4 * `iter` to include this shift.
-    constexpr int32_t SHIFT = 3 + (ITER * 4) + DANGLING_BITS;
-
-    lane = _mm_srli_epi32(lane, SHIFT);
-    TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
-
-    lane = _mm_and_si128(lane, and_mask);
-    TRACE_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
-
-    callback(lane);
-  }
-
-  template <typename CallbackFn>
-  void decompressor(const void* __restrict input_compressed, size_t num_tuples, CallbackFn callback) {
-    const size_t num_batches = num_tuples / VALUES_PER_BATCH;
-
-    const auto* compressed_data = static_cast<const uint8_t*>(input_compressed);
-
-    assert(num_batches % 2 == 0);
-    for (size_t batch = 0; batch < num_batches; batch += 2) {
-      {
-        const size_t offset = ((batch + 0) * BITS_PER_BATCH) / 8;
-        const auto* pos = reinterpret_cast<const __m128i*>(compressed_data + offset);
-        const __m128i batch_lane = _mm_loadu_si128(pos);
-        decompress_iteration<0, 0>(batch_lane, callback);
-        decompress_iteration<1, 0>(batch_lane, callback);
-        decompress_iteration<2, 0>(batch_lane, callback);
+      for(int i = 0; i < 3; ++i) {
+        __m128i lane = _mm_shuffle_epi8(input_vec, shuffle_masks[i]);
+        lane = _mm_mullo_epi32(lane, byte_align_mask);  // _mm_sllv_epi32 requires AVX2
+        lane = _mm_srli_epi32(lane, 3 + (i * 4));
+        lane = _mm_and_si128(lane, and_mask);
+        _mm_store_si128(reinterpret_cast<__m128i*>(output), lane);
+        output += OUTPUT_ELEMENTS_PER_VECTOR;
       }
-      {
-        const size_t offset = ((batch + 1) * BITS_PER_BATCH) / 8;
-        const auto* pos = reinterpret_cast<const __m128i*>(compressed_data + offset);
-        const __m128i batch_lane = _mm_loadu_si128(pos);
-        // In odd runs, we may have dangling bits at beginning of batch.
-        decompress_iteration<0, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
-        decompress_iteration<1, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
-        decompress_iteration<2, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
+
+      // For the first 128 bits, we will output 3*4=12 elements, processing 12*9=108 bits=13.5 bytes.
+      // For the second vector, we have to read beginning at the the "dangling" half byte.
+      input_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr + 13));
+
+      for(int i = 0; i < 3; ++i) {
+        __m128i lane = _mm_shuffle_epi8(input_vec, shuffle_masks[i]);
+        lane = _mm_mullo_epi32(lane, byte_align_mask);
+        lane = _mm_srli_epi32(lane, 3 + (i * 4) + 4);
+        lane = _mm_and_si128(lane, and_mask);
+        _mm_store_si128(reinterpret_cast<__m128i*>(output), lane);
+        output += OUTPUT_ELEMENTS_PER_VECTOR;
       }
+
+      read_ptr += OUTPUT_ELEMENTS_PER_ITERATION * 9 / 8;
     }
-  }
-
-  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    auto store_fn = [&](__m128i decompressed_values) {
-      _mm_store_si128(reinterpret_cast<__m128i*>(output), decompressed_values);
-      output += VALUES_PER_ITERATION;
-    };
-
-    decompressor(input, num_tuples, store_fn);
   }
 };
 
@@ -526,47 +494,42 @@ struct x86_avx2_scan {
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = 3ul * 2 * OUTPUT_ELEMENTS_PER_128_VECTOR;
-    static_assert(NUM_TUPLES % OUTPUT_ELEMENTS_PER_ITERATION == 0, "Would require loop epilogue");
-    static_assert(9 * (2 * OUTPUT_ELEMENTS_PER_128_VECTOR) % 8 == 0, "Processing step causes leading garbage bits");
-
     size_t iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
 
     const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
 
     const __m128i shift_values = _mm_load_si128(reinterpret_cast<const __m128i*>(LANE_SHIFT_VALUES.data()));
-    const __m128i shift_values_plus_4 = _mm_add_epi32(shift_values, _mm_set1_epi32(4));
     const __m128i and_mask = _mm_set1_epi32((1 << COMPRESS_BITS) - 1);
 
     for (size_t iteration = 0; iteration < iterations; ++iteration) {
       // With AVX2, we can't shuffle across 128bit lanes, so we fall back to using two 128-bit registers.
-      const __m128i input_vec1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr));
+      __m128i input_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr));
 
       for (size_t i = 0; i < 3; ++i) {
         const __m128i shuffle_mask = _mm_load_si128(reinterpret_cast<const __m128i*>(SHUFFLE_TO_LANES[i].data()));
-        const __m128i lanes = _mm_shuffle_epi8(input_vec1, shuffle_mask);
+        const __m128i lanes = _mm_shuffle_epi8(input_vec, shuffle_mask);
         __m128i shifted_lanes = _mm_srlv_epi32(lanes, shift_values);
         shifted_lanes = _mm_srli_epi32(shifted_lanes, static_cast<int>(i * 4) % 8);
         const __m128i result = _mm_and_si128(shifted_lanes, and_mask);
-        _mm_store_si128(reinterpret_cast<__m128i*>(output + i * OUTPUT_ELEMENTS_PER_128_VECTOR), result);
+        _mm_store_si128(reinterpret_cast<__m128i*>(output), result);
+        output += OUTPUT_ELEMENTS_PER_128_VECTOR;
       }
 
-      output += 3ul * OUTPUT_ELEMENTS_PER_128_VECTOR;
-
-      // For input_vec1 (128 bits), we will output 3*4=12 elements, processing 12*9=108 bits=13.5 bytes.
-      // For the second vector, we have to process the "dangling" half byte and the next few bytes.
-      const __m128i input_vec2 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr + 13));
+      // For the first 128 bits, we will output 3*4=12 elements, processing 12*9=108 bits=13.5 bytes.
+      // For the second vector, we have to read beginning at the the "dangling" half byte.
+      input_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr + 13));
 
       for (size_t i = 0; i < 3; ++i) {
         const __m128i shuffle_mask = _mm_load_si128(reinterpret_cast<const __m128i*>(SHUFFLE_TO_LANES[i].data()));
-        const __m128i lanes = _mm_shuffle_epi8(input_vec2, shuffle_mask);
-        __m128i shifted_lanes = _mm_srlv_epi32(lanes, shift_values_plus_4);
-        shifted_lanes = _mm_srli_epi32(shifted_lanes, static_cast<int>(i * 4) % 8);
+        const __m128i lanes = _mm_shuffle_epi8(input_vec, shuffle_mask);
+        __m128i shifted_lanes = _mm_srlv_epi32(lanes, shift_values);
+        shifted_lanes = _mm_srli_epi32(shifted_lanes, 4 + static_cast<int>(i * 4) % 8);
         const __m128i result = _mm_and_si128(shifted_lanes, and_mask);
-        _mm_store_si128(reinterpret_cast<__m128i*>(output + i * OUTPUT_ELEMENTS_PER_128_VECTOR), result);
+        _mm_store_si128(reinterpret_cast<__m128i*>(output), result);
+        output += OUTPUT_ELEMENTS_PER_128_VECTOR;
       }
 
-      output += 3ul * OUTPUT_ELEMENTS_PER_128_VECTOR;
-      read_ptr += 3ul * 2 * OUTPUT_ELEMENTS_PER_128_VECTOR * 9 / 8;
+      read_ptr += OUTPUT_ELEMENTS_PER_ITERATION * 9 / 8;
     }
   }
 };
