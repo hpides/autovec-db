@@ -205,10 +205,9 @@ The vector variants all follow this approach:
   thus have (regwidth)/9 or (regwidth - 7) / 9 many complete elements.
 * Iterate over the values in the input vector. Each iteration outputs at max regwidth/32 elements. We need (regwidth /
   9) / (regwidth/32) = 32/9 = 3.5 iterations per input line.
-* If we want to use aligned stores for our output -> output 3 full vectors, throw away remaining half row.
-* Alternatively: Also widen and store the remaining half vector, use unaligned stores.
+* We want to use aligned stores for our output, so we write 3 full vectors and discard the remaining half row.
 
-An iteration is repeated 3 (aligned) or 4 (unaligned) times and performs these steps:
+An iteration is repeated 3 times and performs these steps:
  1. Widen elements from 9 bit to 32 bit:
    1. Shuffle consecutive 32 bits from the input into 32-bit "lanes", each lane starting with the first byte to contain
       a new 9-bit element
@@ -449,7 +448,7 @@ struct x86_128_scan {
     };
 
     const __m128i byte_align_mask = _mm_set_epi32(1 << 0, 1 << 1, 1 << 2, 1 << 3);
-    const __m128i and_mask = _mm_set_epi8(0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1);
+    const __m128i and_mask = _mm_set1_epi32((1 << COMPRESS_BITS) - 1);
 
     const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
 
@@ -457,7 +456,7 @@ struct x86_128_scan {
     for (size_t iteration = 0; iteration < num_iterations; ++iteration) {
       __m128i input_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr));
 
-      for(int i = 0; i < 3; ++i) {
+      for (int i = 0; i < 3; ++i) {
         __m128i lane = _mm_shuffle_epi8(input_vec, shuffle_masks[i]);
         lane = _mm_mullo_epi32(lane, byte_align_mask);  // _mm_sllv_epi32 requires AVX2
         lane = _mm_srli_epi32(lane, 3 + (i * 4));
@@ -470,7 +469,7 @@ struct x86_128_scan {
       // For the second vector, we have to read beginning at the the "dangling" half byte.
       input_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr + 13));
 
-      for(int i = 0; i < 3; ++i) {
+      for (int i = 0; i < 3; ++i) {
         __m128i lane = _mm_shuffle_epi8(input_vec, shuffle_masks[i]);
         lane = _mm_mullo_epi32(lane, byte_align_mask);
         lane = _mm_srli_epi32(lane, 3 + (i * 4) + 4);
@@ -488,12 +487,12 @@ BENCHMARK(BM_scanning<x86_128_scan>)->BM_ARGS;
 
 struct x86_avx2_scan {
   static constexpr size_t OUTPUT_ELEMENTS_PER_128_VECTOR = 4;  // 16B / 4B-per-element
+  static constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = 3ul * 2 * OUTPUT_ELEMENTS_PER_128_VECTOR;
 
   alignas(16) static constexpr std::array SHUFFLE_TO_LANES = shuffle_table_input_elements_to_lanes<128>();
   alignas(16) static constexpr std::array LANE_SHIFT_VALUES = shift_values_for_lanes<128>();
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = 3ul * 2 * OUTPUT_ELEMENTS_PER_128_VECTOR;
     size_t iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
 
     const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
@@ -571,11 +570,10 @@ BENCHMARK(BM_scanning<x86_pdep_scan>)->BM_ARGS;
 
 #if AVX512_AVAILABLE
 struct x86_512_scan {
-  static constexpr size_t VALUES_PER_BATCH = (16 * 3) + 8;
-  static constexpr size_t BYTES_PER_BATCH = (VALUES_PER_BATCH * COMPRESS_BITS) / 8;
+  static constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = 512 / 32;
+  static constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = 3ul * OUTPUT_ELEMENTS_PER_VECTOR;
 
-  template <size_t ITER>
-  inline __m512i decompress(__m512i batch_lane) {
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
     // clang-format off
     const std::array lane_shuffle_masks = {
       _mm512_set_epi16(13, 12, 11, 10, 9, 8, 7, 6, 11, 10, 9, 8, 7, 6, 5, 4, 9, 8, 7, 6, 5, 4, 3, 2, 7, 6, 5, 4, 3, 2, 1, 0),
@@ -585,66 +583,29 @@ struct x86_512_scan {
     };
 
     const __m512i shuffle_mask = _mm512_set_epi8(6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
-                                                  6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
-                                                  6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
-                                                  6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0);
+                                                 6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
+                                                 6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
+                                                 6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0);
     // clang-format on
 
     const __m512i shift_mask = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
     const __m512i and_mask = _mm512_set1_epi32((1u << COMPRESS_BITS) - 1);
 
-    TRACE_DO(std::cout << "load: "; print_lane(&batch_lane););
+    const size_t num_iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
+    const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
 
-    __m512i lane = _mm512_permutexvar_epi16(lane_shuffle_masks[ITER], batch_lane);
-    TRACE_DO(std::cout << "a16 : "; print_lane(&lane););
-
-    lane = _mm512_shuffle_epi8(lane, shuffle_mask);
-    TRACE_DO(std::cout << "a4  : "; print_lane(&lane););
-
-    lane = _mm512_srlv_epi32(lane, shift_mask);
-    TRACE_DO(std::cout << "bit : "; print_lane(&lane););
-
-    lane = _mm512_and_epi32(lane, and_mask);
-    TRACE_DO(std::cout << "and : "; print_lane(&lane););
-
-    return lane;
-  }
-
-  template <typename CallbackFn>
-  inline void decompress_batch(const __m512i batch_lane, CallbackFn callback) {
-    callback(decompress<0>(batch_lane));
-    callback(decompress<1>(batch_lane));
-    callback(decompress<2>(batch_lane));
-
-    // Last iteration are only 8 values.
-    callback(_mm512_castsi512_si256(decompress<3>(batch_lane)));
-  }
-
-  template <typename CallbackFn>
-  void decompressor(const void* input_compressed, size_t num_tuples, CallbackFn callback) {
-    const size_t num_batches = num_tuples / VALUES_PER_BATCH;
-    const auto* compressed_data = static_cast<const uint8_t*>(input_compressed);
-
-    for (size_t batch = 0; batch < num_batches; ++batch) {
-      const size_t offset = batch * BYTES_PER_BATCH;
-      const auto* pos = reinterpret_cast<const __m512i*>(compressed_data + offset);
-      const __m512i batch_lane = _mm512_loadu_si512(pos);
-      decompress_batch(batch_lane, callback);
-    }
-  }
-
-  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    auto store_fn = [&](auto decompressed_values) {
-      if constexpr (sizeof(decompressed_values) == 64) {
-        _mm512_storeu_si512(reinterpret_cast<__m512i*>(output), reinterpret_cast<__m512i&>(decompressed_values));
-        output += 16;
-      } else if constexpr (sizeof(decompressed_values) == 32) {
-        _mm256_store_si256(reinterpret_cast<__m256i*>(output), reinterpret_cast<__m256i&>(decompressed_values));
-        output += 8;
+    for(size_t iteration = 0; iteration < num_iterations; ++iteration) {
+      const __m512i input_vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(read_ptr));
+      read_ptr += OUTPUT_ELEMENTS_PER_ITERATION * 9 / 8;
+      for(int i = 0; i < 3; ++i) {
+        __m512i lane = _mm512_permutexvar_epi16(lane_shuffle_masks[i], input_vec);
+        lane = _mm512_shuffle_epi8(lane, shuffle_mask);
+        lane = _mm512_srlv_epi32(lane, shift_mask);
+        lane = _mm512_and_epi32(lane, and_mask);
+        _mm512_storeu_si512(reinterpret_cast<__m512i*>(output), lane);
+        output += OUTPUT_ELEMENTS_PER_VECTOR;
       }
-    };
-
-    decompressor(input, num_tuples, store_fn);
+    }
   }
 };
 
