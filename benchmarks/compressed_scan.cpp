@@ -241,11 +241,11 @@ static constexpr auto shuffle_table_input_elements_to_lanes() {
   constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = vector_width_bits / 32;
 
   for (size_t input_element = 0; input_element < INPUT_ELEMENTS_PER_VECTOR; ++input_element) {
-    size_t bits_before = 9 * input_element;
-    size_t bytes_before = bits_before / 8;
+    const size_t bits_before = 9 * input_element;
+    const size_t bytes_before = bits_before / 8;
 
-    size_t output_array = input_element / OUTPUT_ELEMENTS_PER_VECTOR;
-    size_t output_element = input_element % OUTPUT_ELEMENTS_PER_VECTOR;
+    const size_t output_array = input_element / OUTPUT_ELEMENTS_PER_VECTOR;
+    const size_t output_element = input_element % OUTPUT_ELEMENTS_PER_VECTOR;
 
     unsigned char* write_ptr = result[output_array].data() + 4 * output_element;
     std::iota(write_ptr, write_ptr + 4, static_cast<uint8_t>(bytes_before));
@@ -302,7 +302,7 @@ struct vector_scan {
     constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = BATCHES_PER_ITERATION * 3 * OUTPUT_ELEMENTS_PER_VECTOR;
     static_assert(NUM_TUPLES % OUTPUT_ELEMENTS_PER_ITERATION == 0, "Would require loop epilogue");
 
-    size_t iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
+    const size_t iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
 
     const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
 
@@ -493,7 +493,7 @@ struct x86_avx2_scan {
   alignas(16) static constexpr std::array LANE_SHIFT_VALUES = shift_values_for_lanes<128>();
 
   void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    size_t iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
+    const size_t iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
 
     const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
 
