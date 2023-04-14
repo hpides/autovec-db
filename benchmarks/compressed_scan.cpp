@@ -315,8 +315,10 @@ struct vector_scan {
         auto input_vec = simd::load_unaligned<ByteVecT>(read_ptr);
         read_ptr += 3 * (OUTPUT_ELEMENTS_PER_VECTOR)*9 / 8;
 
+#if CLANG_COMPILER
         // We want the shuffle mask to be known at compile-time. If we don't force the unroll, it does not detect this.
 #pragma clang loop unroll(full)
+#endif
         for (size_t i = 0; i < 3; ++i) {
           auto shuffle_mask = simd::load<ByteVecT>(SHUFFLE_TO_LANES[i].data());
           Uint32VecT lanes = simd::shuffle_vector(input_vec, shuffle_mask);
