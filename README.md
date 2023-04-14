@@ -26,12 +26,12 @@ The commands that run inside the container can be found at [`scripts/docker_entr
 
 The benchmarks log their results to `.csv` files that can be compared using our diff script at `eval/scripts/diff.py`.
 
-
 The docker image was built using
 ```bash
-docker build -t hpides/autovec-db .
-docker login
-docker push hpides/autovec-db
+# x86
+DOCKER_BUILDKIT=1 docker build -t hpides/autovec-db:x86 --target=x86 .
+# AArch64
+DOCKER_BUILDKIT=1 docker build -t hpides/autovec-db:aarch64 --target=aarch64 .
 ```
 
 ## Plotting the results
