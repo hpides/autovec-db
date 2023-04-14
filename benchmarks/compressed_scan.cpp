@@ -347,84 +347,55 @@ BENCHMARK(BM_scanning<vector_scan<512>>)->BM_ARGS;
 ///////////////////////
 #if defined(__aarch64__)
 struct neon_scan {
-  static constexpr size_t VALUES_PER_ITERATION = 4;
-  static constexpr size_t VALUES_PER_BATCH = VALUES_PER_ITERATION * ITERATIONS_PER_BATCH;
-  static constexpr size_t BITS_PER_BATCH = VALUES_PER_BATCH * COMPRESS_BITS;
-  static constexpr size_t DANGLING_BITS_PER_BATCH = BITS_PER_BATCH % 8;
+  static constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = 4;  // 16B / 4B-per-element
+  static constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = 3ul * 2 * OUTPUT_ELEMENTS_PER_VECTOR;
 
-  // Note: the masks are inverted, i.e., they are ordered as {nth, (n-1)th, (n-2)th, ..., 0th}.
   static constexpr uint32x4_t BYTE_ALIGN_MASK = {3, 2, 1, 0};
   static constexpr uint8x16_t AND_MASK = {255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0, 255, 1, 0, 0};
 
-  template <size_t ITER, uint8_t DANGLING_BITS, typename CallbackFn>
-  inline void decompress_iteration(uint8x16_t batch_lane, CallbackFn callback) {
-    auto shuffle_input = [&] {
-      static_assert(ITER < 3, "Cannot do more than 3 iterations per lane.");
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    const auto* read_ptr = reinterpret_cast<const uint8_t*>(input);
+
+    auto shuffle_input = [](uint8x16_t vec, size_t iter) {
+      assert(iter < 3 && "Cannot do more than 3 iterations per lane.");
       // clang-format off
-      switch (ITER) {
-        case 0: return __builtin_shufflevector(batch_lane, batch_lane, 0, 1, 2, 3, 1, 2, 3, 5, 2, 3, 4, 5, 3, 4, 5, 6);
-        case 1: return __builtin_shufflevector(batch_lane, batch_lane, 4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10);
-        case 2: return __builtin_shufflevector(batch_lane, batch_lane, 8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14);
+      switch (iter) {
+        case 0: return __builtin_shufflevector(vec, vec, 0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6);
+        case 1: return __builtin_shufflevector(vec, vec, 4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10);
+        case 2: return __builtin_shufflevector(vec, vec, 8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14);
         default: __builtin_unreachable();
       }
       // clang-format on
     };
 
-    TRACE_DO(std::cout << "load:  "; print_lane(&batch_lane););
+    const size_t num_iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
+    for (size_t iteration = 0; iteration < num_iterations; ++iteration) {
+      uint8x16_t input_vec = vld1q_u8(read_ptr);
 
-    uint8x16_t lane = shuffle_input();
-    TRACE_DO(std::cout << "a16#" << ITER << ": "; print_lane(&lane););
-
-    lane = vshlq_u32(vreinterpretq_s32_u8(lane), BYTE_ALIGN_MASK);
-    TRACE_DO(std::cout << "a4 #" << ITER << ": "; print_lane(&lane););
-
-    // There are 4 values per iteration, the first is shifted by 0 bits, the second by 1, the third by 2, and the
-    // fourth by 3. So we need to always shift by 3. In the next iteration, the first is shifted by 4 bits, and so
-    // on. So we need to shift by 4 * `iter` to include this shift.
-    constexpr int32_t shift = 3 + (ITER * 4) + DANGLING_BITS;
-
-    lane = vshrq_n_s32(vreinterpretq_u32_u8(lane), shift);
-    TRACE_DO(std::cout << "bit#" << ITER << ": "; print_lane(&lane););
-
-    lane = vandq_u8(lane, AND_MASK);
-    TRACE_DO(std::cout << "and#" << ITER << ": "; print_lane(&lane););
-
-    callback(lane);
-  }
-
-  template <typename CallbackFn>
-  void decompressor(const void* __restrict input_compressed, size_t num_tuples, CallbackFn callback) {
-    const size_t num_batches = num_tuples / VALUES_PER_BATCH;
-
-    const auto* compressed_data = static_cast<const uint8_t*>(input_compressed);
-
-    assert(num_batches % 2 == 0);
-    for (size_t batch = 0; batch < num_batches; batch += 2) {
-      {
-        const size_t offset = ((batch + 0) * BITS_PER_BATCH) / 8;
-        uint8x16_t batch_lane = vld1q_u8(compressed_data + offset);
-        decompress_iteration<0, 0>(batch_lane, callback);
-        decompress_iteration<1, 0>(batch_lane, callback);
-        decompress_iteration<2, 0>(batch_lane, callback);
+      for (int i = 0; i < 3; ++i) {
+        uint8x16_t vec = shuffle_input(input_vec, i);
+        vec = vshlq_u32(vreinterpretq_s32_u8(vec), BYTE_ALIGN_MASK);
+        vec = vshlq_s32(vreinterpretq_u32_u8(vec), vmovq_n_s32(-(3 + (i * 4))));
+        vec = vandq_u8(vec, AND_MASK);
+        vst1q_u32(output, vec);
+        output += OUTPUT_ELEMENTS_PER_VECTOR;
       }
-      {
-        const size_t offset = ((batch + 1) * BITS_PER_BATCH) / 8;
-        uint8x16_t batch_lane = vld1q_u8(compressed_data + offset);
-        // In odd runs, we may have dangling bits at beginning of batch.
-        decompress_iteration<0, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
-        decompress_iteration<1, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
-        decompress_iteration<2, DANGLING_BITS_PER_BATCH>(batch_lane, callback);
+
+      // For the first 128 bits, we will output 3*4=12 elements, processing 12*9=108 bits=13.5 bytes.
+      // For the second vector, we have to read beginning at the "dangling" half byte.
+      input_vec = vld1q_u8(read_ptr + 13);
+
+      for (int i = 0; i < 3; ++i) {
+        uint8x16_t vec = shuffle_input(input_vec, i);
+        vec = vshlq_u32(vreinterpretq_s32_u8(vec), BYTE_ALIGN_MASK);
+        vec = vshlq_s32(vreinterpretq_u32_u8(vec), vmovq_n_s32(-(3 + (i * 4) + 4)));
+        vec = vandq_u8(vec, AND_MASK);
+        vst1q_u32(output, vec);
+        output += OUTPUT_ELEMENTS_PER_VECTOR;
       }
+
+      read_ptr += OUTPUT_ELEMENTS_PER_ITERATION * 9 / 8;
     }
-  }
-
-  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
-    auto store_fn = [&](uint32x4_t decompressed_values) {
-      vst1q_u32(output, decompressed_values);
-      output += VALUES_PER_ITERATION;
-    };
-
-    decompressor(input, num_tuples, store_fn);
   }
 };
 
@@ -515,7 +486,7 @@ struct x86_avx2_scan {
       }
 
       // For the first 128 bits, we will output 3*4=12 elements, processing 12*9=108 bits=13.5 bytes.
-      // For the second vector, we have to read beginning at the the "dangling" half byte.
+      // For the second vector, we have to read beginning at the "dangling" half byte.
       input_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(read_ptr + 13));
 
       for (size_t i = 0; i < 3; ++i) {
