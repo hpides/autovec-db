@@ -8,7 +8,7 @@ from common import *
 def plot_compressed_scan(ax, data):
     naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
 
-    max_diff = 1;
+    max_diff = 1
     for _, row in data.iterrows():
         variant = row['name']
         speedup = naive_perf / row['runtime']

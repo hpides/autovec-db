@@ -219,6 +219,7 @@ def clean_up_results(results, bm_suffix="NEVER_MATCHES"):
 
     results.name = results.name.str.replace("x86-128", "sse4-128")
     results.name = results.name.str.replace("x86-256", "avx2-256")
+    results.name = results.name.str.replace("x86-avx2", "avx2-256")
     results.name = results.name.str.replace("x86-512", "avx512")
     results.name = results.name.str.replace("x86-avx512", "avx512")
 
