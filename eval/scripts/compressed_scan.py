@@ -8,9 +8,18 @@ from common import *
 def plot_compressed_scan(ax, data):
     naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
 
+    max_diff = 1;
     for _, row in data.iterrows():
         variant = row['name']
-        ax.bar(variant, naive_perf / row['runtime'], **BAR(variant))
+        speedup = naive_perf / row['runtime']
+        ax.bar(variant, speedup, **BAR(variant))
+        max_diff = max(max_diff, speedup)
+
+    y_pos = 1 + (max_diff / 20)
+    if IS_PAPER_PLOT():
+        ax.text(0, y_pos, f"\\ms{{{naive_perf / 1000:.1f}}}", size=10, **NAIVE_PERF_TEXT)
+    else:
+        ax.text(0, y_pos, f"{naive_perf / 1000:.1f}ms", **NAIVE_PERF_TEXT)
 
     ax.tick_params(axis='x', which=u'both',length=0)
     ax.set_xticks(range(len(data)))

@@ -12,6 +12,14 @@ def plot_hashing(ax, data):
         variant = row['name']
         ax.bar(variant, naive_perf / row['runtime'], **BAR(variant))
 
+    scalar_perf = data[data['name'].str.contains('scalar')]['runtime'].values[0]
+    y_pos = 1.05 if (scalar_perf / naive_perf) < 2 else 0.3
+
+    if IS_PAPER_PLOT():
+        ax.text(0, y_pos, f"\\ns{{{int(scalar_perf)}}}", size=10, **NAIVE_PERF_TEXT)
+    else:
+        ax.text(0, y_pos, f"{int(scalar_perf)}ns", **NAIVE_PERF_TEXT)
+
     ax.tick_params(axis='x', which=u'both', length=0)
     ax.set_xticks(range(len(data)))
     ax.set_xticklabels(data['name'], rotation=60, rotation_mode='anchor', ha='right')
