@@ -11,6 +11,12 @@ name,iterations,real_time,cpu_time,time_unit,bytes_per_second,items_per_second,l
 "BM_scanning<vector_128_scan>_median",10,61.9085,61.9085,us,,,,,,6.19125e-11
 "BM_scanning<vector_128_scan>_stddev",10,0.9154,0.915095,us,,,,,,9.15153e-13
 "BM_scanning<vector_128_scan>_cv",10,1478.46,1477.98,us,,,,,,0.0147798
+
+"BM_scanning<vector_256_scan>_mean",10,80.4349,80.4347,us,,,,,,8.04398e-11
+"BM_scanning<vector_256_scan>_median",10,80.4511,80.4511,us,,,,,,8.04562e-11
+"BM_scanning<vector_256_scan>_stddev",10,0.347047,0.347085,us,,,,,,3.47107e-13
+"BM_scanning<vector_256_scan>_cv",10,431.464,431.511,us,,,,,,0.00431511
+
 "BM_scanning<vector_512_scan>_mean",10,80.4349,80.4347,us,,,,,,8.04398e-11
 "BM_scanning<vector_512_scan>_median",10,80.4511,80.4511,us,,,,,,8.04562e-11
 "BM_scanning<vector_512_scan>_stddev",10,0.347047,0.347085,us,,,,,,3.47107e-13
