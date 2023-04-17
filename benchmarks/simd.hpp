@@ -210,6 +210,12 @@ inline VectorT load(const void* ptr) {
 }
 
 template <typename VectorT>
+inline VectorT load_unaligned(const void* ptr) {
+  using UnalignedVectorT __attribute__((aligned(1))) = VectorT;
+  return *reinterpret_cast<const UnalignedVectorT*>(ptr);
+}
+
+template <typename VectorT>
 inline void store(void* ptr, VectorT value) {
   *reinterpret_cast<VectorT*>(ptr) = value;
 }
