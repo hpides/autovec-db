@@ -199,7 +199,7 @@ def get_results(result_dir, file_name, columns=('name', 'cpu_time')):
     return df
 
 
-def clean_up_results(results, bm_suffix):
+def clean_up_results(results, bm_suffix="NEVER_MATCHES"):
     ASSERT_VARIANCE_IS_LOW(results)
 
     results = results[results.name.str.contains("mean")]
