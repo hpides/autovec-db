@@ -50,6 +50,10 @@ $ pip3 install -r requirements.txt
 
 ### Plots
 
+Our scripts always generate a PNG and an SVG for each plot.
+By default, it will generate a version optimized for PNG.
+If you want to create the SVG plots used in the paper, set `AUTOVEC_DB_PLOTS=ON` in your environment variables.
+
 To generate a plot for a benchmark, run the following command:
 ```shell
 $ python3 scripts/<script_name>.py results/ /path/to/plot/dir

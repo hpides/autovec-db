@@ -8,10 +8,12 @@ from common import *
 def plot_dictionary_scan(ax, data):
     naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
 
+    max_diff = 1
     for _, row in data.iterrows():
         variant = row['name']
         speedup = naive_perf / row['runtime']
         bar_style = BAR(variant)
+        max_diff = max(speedup, max_diff)
 
         # Only plot with min. 10% diff to avoid plotting noise.
         plotting_patched = 'patched' in row and (naive_perf / row['patched']) > (speedup * 1.1)
@@ -30,6 +32,12 @@ def plot_dictionary_scan(ax, data):
 
     data['name'] = data['name'].str.replace(r"(avx512)-(\d+)-COMPRESSSTORE", r"vpcompressd-\2", regex=True)
     # data['name'] = data['name'].str.replace(r"-COMPRESSSTORE", "-compress")
+
+    y_pos = 1 + (max_diff / 20)
+    if IS_PAPER_PLOT():
+        ax.text(0, y_pos, f"\\ms{{{naive_perf / 1000:.1f}}}", size=10, **NAIVE_PERF_TEXT)
+    else:
+        ax.text(0, y_pos, f"{naive_perf / 1000:.1f}ms", **NAIVE_PERF_TEXT)
 
     ax.tick_params(axis='x', which=u'both',length=0)
     ax.set_xticks(range(len(data['name'])))

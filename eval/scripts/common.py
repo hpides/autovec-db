@@ -29,6 +29,7 @@ APPLE_GREY = '#555555'
 
 DEFAULT_X86_ARCH = 'icelake'
 
+NAIVE_PERF_TEXT = {"rotation": 90, "ha": 'center', "va": 'bottom'}
 
 VARIANT_COLOR_BLACK_WHITE = {
     "naive": '#f0f0f0',
@@ -181,6 +182,10 @@ def SAVE_PLOT(plot_path, img_types=IMG_TYPES):
 
     plt.figure()
     print(f"To view new plots, run:\n\topen {' '.join(plot_paths)}")
+
+
+def IS_PAPER_PLOT():
+    return os.getenv("AUTOVEC_DB_PLOTS") == "ON"
 
 
 #######################################
