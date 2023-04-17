@@ -27,11 +27,8 @@ def get_table(systems):
 
     print("\n===== RESULTS ====")
     print(results.to_latex(index=False,
-                               formatters={
-                                "naive": "bla",
-                               },
-                               float_format="{:.1f}".format,
-                               na_rep="-"))
+                           float_format="{:.1f}x".format,
+                           na_rep="-"))
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:
@@ -44,8 +41,7 @@ if __name__ == '__main__':
     get_table(('icelake', 'cascadelake', 'skylake', 'rome'))
 
     # NEON
-    # get_table(('m1', 'graviton2', 'graviton3', 'pi'))
-    get_table(('m1', 'pi'))
+    get_table(('m1', 'graviton2', 'graviton3', 'pi'))
 
 
 
