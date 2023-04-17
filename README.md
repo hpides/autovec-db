@@ -26,12 +26,25 @@ The commands that run inside the container can be found at [`scripts/docker_entr
 
 The benchmarks log their results to `.csv` files that can be compared using our diff script at `eval/scripts/diff.py`.
 
-
-The docker image was built using
+The docker image was built using:
 ```bash
-docker build -t hpides/autovec-db .
-docker login
-docker push hpides/autovec-db
+# x86
+DOCKER_BUILDKIT=1 docker build -t hpides/autovec-db:x86 --target=x86 .
+# AArch64
+DOCKER_BUILDKIT=1 docker build -t hpides/autovec-db:aarch64 --target=aarch64 .
+```
+
+*Note:* To build the AArch64 image, you need QEMU on an x86 system.
+
+To upload the images and automatically detect the architecture on download, run:
+```bash
+# Create
+docker manifest create hpides/autovec-db:latest \
+          --amend hpides/autovec-db:x86 \
+          --amend hpides/autovec-db:aarch64
+
+# Upload
+docker manifest push hpides/autovec-db:latest
 ```
 
 ## Plotting the results
@@ -49,6 +62,10 @@ $ pip3 install -r requirements.txt
 ```
 
 ### Plots
+
+Our scripts always generate a PNG and an SVG for each plot.
+By default, it will generate a version optimized for PNG.
+If you want to create the SVG plots used in the paper, set `AUTOVEC_DB_PLOTS=ON` in your environment variables.
 
 To generate a plot for a benchmark, run the following command:
 ```shell

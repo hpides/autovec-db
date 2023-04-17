@@ -7,6 +7,6 @@ mkdir -p ${BUILD_DIR}
 CXX=${COMPILER} cmake . -B ${BUILD_DIR} -DCMAKE_BUILD_TYPE=Release
 cmake --build ${BUILD_DIR} -j
 
-for BENCHMARK in hashing hash_bucket compressed_scan dictionary_scan compare_to_bitmask; do
+for BENCHMARK in hashing hash_bucket compressed_scan dictionary_scan; do
   ${BUILD_DIR}/${BENCHMARK} ${BENCH_ARGS} | tee ${BENCHMARK}.csv
 done
