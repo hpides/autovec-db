@@ -37,15 +37,16 @@ def plot_hash_bucket(ax, data):
 if __name__ == '__main__':
     result_path, plot_dir, x86_arch = INIT(sys.argv)
 
-    x86_results = get_results(result_path, f"hash_bucket_x86_{x86_arch}.csv")
+    x86_results = get_results(result_path, f"{x86_arch}/hash_bucket.csv")
     x86_results = clean_up_results(x86_results, "find")
 
-    m1_results = get_results(result_path, "hash_bucket_m1.csv")
+    m1_results = get_results(result_path, "m1/hash_bucket.csv")
     m1_results = clean_up_results(m1_results, "find")
 
-    m1_patched_results = get_results(result_path, "hash_bucket_m1_patched.csv")
-    m1_patched_results = clean_up_results(m1_patched_results, "find")
-    m1_results['patched'] = m1_patched_results['runtime']
+    m1_unpatched_results = get_results(result_path, "m1/hash_bucket_unpatched.csv")
+    m1_unpatched_results = clean_up_results(m1_unpatched_results, "find")
+    m1_results['patched'] = m1_results['runtime']
+    m1_results['runtime'] = m1_unpatched_results['runtime']
 
     fig, (x86_ax, m1_ax) = plt.subplots(1, 2, figsize=DOUBLE_FIG_SIZE)
 

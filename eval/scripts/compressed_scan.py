@@ -30,10 +30,10 @@ def plot_compressed_scan(ax, data):
 if __name__ == '__main__':
     result_path, plot_dir, x86_arch = INIT(sys.argv)
 
-    x86_results = get_results(result_path, f"compressed_scan_x86_{x86_arch}.csv")
+    x86_results = get_results(result_path, f"{x86_arch}/compressed_scan.csv")
     x86_results = clean_up_results(x86_results, "scan")
 
-    m1_results = get_results(result_path, "compressed_scan_m1.csv")
+    m1_results = get_results(result_path, "m1/compressed_scan.csv")
     m1_results = clean_up_results(m1_results, "scan")
 
     fig, (x86_ax, m1_ax) = plt.subplots(1, 2, figsize=DOUBLE_FIG_SIZE)

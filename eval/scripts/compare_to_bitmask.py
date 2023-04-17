@@ -30,10 +30,10 @@ def plot_compare_to_bitmask(ax, data, name):
 if __name__ == '__main__':
     result_path, plot_dir, x86_arch = INIT(sys.argv)
 
-    x86_results = get_results(result_path, f"compare_to_bitmask_x86_{x86_arch}.csv")
+    x86_results = get_results(result_path, f"{x86_arch}/compare_to_bitmask.csv")
     x86_results = clean_up_results(x86_results, "bitmask")
 
-    m1_results = get_results(result_path, "compare_to_bitmask_m1.csv")
+    m1_results = get_results(result_path, "m1/compare_to_bitmask.csv")
     m1_results = clean_up_results(m1_results, "bitmask")
 
     fig, (x86_axes, m1_axes) = plt.subplots(2, 4, figsize=(DOUBLE_FIG_WIDTH, 7))

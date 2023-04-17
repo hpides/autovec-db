@@ -29,10 +29,10 @@ def plot_hashing(ax, data):
 if __name__ == '__main__':
     result_path, plot_dir, x86_arch = INIT(sys.argv)
 
-    x86_results = get_results(result_path, f"hashing_x86_{x86_arch}.csv")
+    x86_results = get_results(result_path, f"{x86_arch}/hashing.csv")
     x86_results = clean_up_results(x86_results, "hash")
 
-    m1_results = get_results(result_path, "hashing_m1.csv")
+    m1_results = get_results(result_path, "m1/hashing.csv")
     m1_results = clean_up_results(m1_results, "hash")
 
     def filter_results(df):
