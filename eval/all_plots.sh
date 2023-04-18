@@ -15,7 +15,7 @@ X86_ARCH_LIST=(${X86_ARCH//,/ })
 
 export PYTHONPATH="$PWD/scripts"
 
-for script in scripts/compare_to_bitmask.py scripts/compressed_scan.py scripts/dictionary_scan.py scripts/hashing.py scripts/hash_bucket.py
+for script in scripts/compressed_scan.py scripts/dictionary_scan.py scripts/hashing.py scripts/hash_bucket.py
 do
     echo "Running $script..."
     for x86_arch in ${X86_ARCH_LIST[@]}

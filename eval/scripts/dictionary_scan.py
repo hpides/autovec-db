@@ -48,15 +48,16 @@ def plot_dictionary_scan(ax, data):
 if __name__ == '__main__':
     result_path, plot_dir, x86_arch = INIT(sys.argv)
 
-    x86_results = get_results(result_path, f"dictionary_scan_x86_{x86_arch}.csv")
+    x86_results = get_results(result_path, f"{x86_arch}/dictionary_scan.csv")
     x86_results = clean_up_results(x86_results, "scan")
 
-    m1_results = get_results(result_path, "dictionary_scan_m1.csv")
+    m1_results = get_results(result_path, "m1/dictionary_scan.csv")
     m1_results = clean_up_results(m1_results, "scan")
 
-    m1_patched_results = get_results(result_path, "dictionary_scan_m1_patched.csv")
-    m1_patched_results = clean_up_results(m1_patched_results, "scan")
-    m1_results['patched'] = m1_patched_results['runtime']
+    m1_unpatched_results = get_results(result_path, "m1/dictionary_scan_unpatched.csv")
+    m1_unpatched_results = clean_up_results(m1_unpatched_results, "scan")
+    m1_results['patched'] = m1_results['runtime']
+    m1_results['runtime'] = m1_unpatched_results['runtime']
 
     def filter_results(df):
         no_pred = ~df['name'].str.contains("predication")

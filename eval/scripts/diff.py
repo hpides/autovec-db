@@ -95,24 +95,25 @@ def diff_two_files(old_filename, new_filename):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diff google benchmark results in csv format')
-    parser.add_argument("old", nargs="?", default="", help="CSV file with the old benchmark results")
-    parser.add_argument("new", nargs="?", default="", help="CSV file with the new benchmark results")
+    parser.add_argument("old", help="CSV dir/file with the old benchmark results")
+    parser.add_argument("new", nargs="?", default=".", help="CSV dir/file with the new benchmark results")
     args = parser.parse_args()
 
-    if args.old:
-        assert args.new != "", "require either zero or two input files"
+    if os.path.isfile(args.old):
+        assert os.path.isfile(args.new), "either both are file or both are directory"
         diff_two_files(args.old, args.new)
         exit()
 
-    print("No input files given. Diffing all files in working directory against repository files.\n")
+    assert os.path.isdir(args.old) and os.path.isdir(args.new), "either both are file or both are directory"
+    print("Input directories given. Diffing all files in both.\n")
 
-    repo_results_dir = os.path.normpath(os.path.relpath(os.path.dirname(os.path.realpath(__file__))) + "/../results")
-    for filename in sorted(glob.glob("*.csv")):
-        repo_path = repo_results_dir + "/" + filename
-        if os.path.isfile(repo_path):
-            print(f"Diffing {repo_path} (old) and {filename} (new)")
-            diff_two_files(repo_path, filename)
+    for filename in sorted(glob.glob(f"{args.new}/*.csv")):
+        new_path = filename
+        old_path = args.old + "/" + os.path.basename(filename)
+        if os.path.isfile(old_path):
+            print(f"Diffing {old_path} (old) and {new_path} (new)")
+            diff_two_files(old_path, new_path)
         else:
-            print(f"{colors.RED}ERROR{colors.RESET}: No matching file found for {filename} at {repo_path}")
+            print(f"{colors.RED}ERROR{colors.RESET}: No matching file found for {new_path} at {old_path}")
 
         print("\n" + "-"*80 + "\n")
