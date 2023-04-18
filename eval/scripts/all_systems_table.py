@@ -42,6 +42,3 @@ if __name__ == '__main__':
 
     # NEON
     get_table(('m1', 'graviton2', 'graviton3', 'pi'))
-
-
-
