@@ -316,8 +316,11 @@ struct vector_scan {
         read_ptr += 3 * (OUTPUT_ELEMENTS_PER_VECTOR)*9 / 8;
 
 #if CLANG_COMPILER
-        // We want the shuffle mask to be known at compile-time. If we don't force the unroll, it does not detect this.
-#pragma clang loop unroll(full)
+        // We want the shuffle mask to be known at compile-time on NEON, so we force unroll here.
+        // If we don't force the unroll, it does not detect this. For 512 bits, the unrolled loop is too big, so the
+        // vectorizer fails, and we get horrible code --> only unroll for smaller vectors.
+        constexpr int UNROLL_COUNT = vector_width_bits >= 512 ? 1 : 3;
+        #pragma clang loop unroll_count(UNROLL_COUNT)
 #endif
         for (size_t i = 0; i < 3; ++i) {
           auto shuffle_mask = simd::load<ByteVecT>(SHUFFLE_TO_LANES[i].data());
