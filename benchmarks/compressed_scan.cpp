@@ -588,6 +588,40 @@ struct x86_512_scan {
 };
 
 BENCHMARK(BM_scanning<x86_512_scan>)->BM_ARGS;
+
+#if defined(__AVX512VBMI__)
+struct x86_512vbmi_scan {
+  static constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = 512 / 32;
+  static constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = 3ul * OUTPUT_ELEMENTS_PER_VECTOR;
+
+  alignas(64) static constexpr std::array SHUFFLE_TO_LANES = shuffle_table_input_elements_to_lanes<512>();
+  alignas(64) static constexpr std::array LANE_SHIFT_VALUES = shift_values_for_lanes<512>();
+
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    const __m512i shift_mask = _mm512_load_epi32(LANE_SHIFT_VALUES.data());
+    const __m512i and_mask = _mm512_set1_epi32((1u << COMPRESS_BITS) - 1);
+
+    const size_t num_iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
+    const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
+
+    for (size_t iteration = 0; iteration < num_iterations; ++iteration) {
+      const __m512i input_vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(read_ptr));
+      read_ptr += OUTPUT_ELEMENTS_PER_ITERATION * 9 / 8;
+      for (int i = 0; i < 3; ++i) {
+        __m512i lanes =
+            _mm512_permutexvar_epi8(*reinterpret_cast<const __m512i*>(SHUFFLE_TO_LANES[i].data()), input_vec);
+        lanes = _mm512_srlv_epi32(lanes, shift_mask);
+        lanes = _mm512_and_epi32(lanes, and_mask);
+        _mm512_store_si512(reinterpret_cast<__m512i*>(output), lanes);
+        output += OUTPUT_ELEMENTS_PER_VECTOR;
+      }
+    }
+  }
+};
+
+BENCHMARK(BM_scanning<x86_512vbmi_scan>)->BM_ARGS;
+#endif
+
 #endif
 
 BENCHMARK_MAIN();
