@@ -72,7 +72,7 @@ if __name__ == '__main__':
     assert(len(m1_xsimd_results) == len(m1_compiler_results))
     assert(len(m1_xsimd_results) == len(x86_xsimd_results))
 
-    fig, axes = plt.subplots(1, 2, figsize=(2*DOUBLE_FIG_WIDTH, 3))
+    fig, axes = plt.subplots(2, 1, figsize=(DOUBLE_FIG_WIDTH, 6))
     x86_ax, m1_ax = axes
 
     plot_velox_tpch(x86_ax, x86_compiler_results, x86_xsimd_results)
