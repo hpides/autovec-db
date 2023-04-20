@@ -18,7 +18,9 @@
 // For autovec, processing 32-element blocks seems reasonable.
 static constexpr uint64_t NUM_BASE_TUPLES = std::lcm(12, std::lcm(56, 32));
 
-static constexpr uint64_t NUM_TARGET_TUPLES = 1'000'000;
+// We initially had 1M tuples == 1,125MB input data, targetting L3 Cache.
+// However, on cascadelake, L3 bandwidth was bottlenecking, so we went down to ~112kB, targetting L2.
+static constexpr uint64_t NUM_TARGET_TUPLES = 100'000;
 static constexpr uint64_t SCALE_FACTOR = NUM_TARGET_TUPLES / NUM_BASE_TUPLES;
 
 static constexpr uint64_t NUM_TUPLES = NUM_BASE_TUPLES * SCALE_FACTOR;
