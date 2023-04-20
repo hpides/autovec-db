@@ -212,6 +212,7 @@ static constexpr auto shuffle_table_input_elements_to_lanes() {
   // with leading / trailing garbage bits. 4 shuffles are required since we expand 9-bit numbers to 32-bit numbers, so a
   // vector register can only contain 9/32 = 0.28 of the input numbers, so we have to shuffle 4 times to process all
   // input numbers.
+  // Our implementations below typically discard the last half-full vector
   std::array<std::array<uint8_t, vector_width_bits / 8>, 4> result{};
 
   constexpr size_t INPUT_ELEMENTS_PER_VECTOR = vector_width_bits / 9;
@@ -225,7 +226,8 @@ static constexpr auto shuffle_table_input_elements_to_lanes() {
     const size_t output_element = input_element % OUTPUT_ELEMENTS_PER_VECTOR;
 
     unsigned char* write_ptr = result[output_array].data() + 4 * output_element;
-    std::iota(write_ptr, write_ptr + 4, static_cast<uint8_t>(bytes_before));
+    const int input_bytes_left = vector_width_bits / 8 - bytes_before;
+    std::iota(write_ptr, write_ptr + std::min(4, input_bytes_left), static_cast<uint8_t>(bytes_before));
   }
 
   return result;
