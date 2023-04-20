@@ -62,31 +62,6 @@ CompressedColumn compress_input(const std::vector<uint32_t>& input) {
   return compressed_data;
 }
 
-[[maybe_unused]] void print_bytes_right_to_left(void* data, size_t num_bytes, std::ostream& os) {
-  auto* bytes = reinterpret_cast<uint8_t*>(data);
-  for (size_t offset = num_bytes; offset > 0; --offset) {
-    os << std::hex << std::setfill('0') << std::setw(2) << std::bitset<8>(bytes[offset - 1]).to_ulong() << ' ';
-  }
-  os << std::endl;
-}
-
-[[maybe_unused]] void print_bits_right_to_left(void* data, size_t num_bytes, std::ostream& os) {
-  auto* bytes = reinterpret_cast<uint8_t*>(data);
-  for (size_t offset = num_bytes; offset > 0; --offset) {
-    os << std::bitset<8>(bytes[offset - 1]) << ' ';
-  }
-  os << std::endl;
-}
-
-template <typename SimdLane>
-void print_lane(SimdLane* lane, bool as_bits = true, std::ostream& os = std::cout) {
-  constexpr size_t NUM_BYTES = sizeof(SimdLane);
-  if (as_bits) {
-    return print_bits_right_to_left(lane, NUM_BYTES, os);
-  }
-  return print_bytes_right_to_left(lane, NUM_BYTES, os);
-}
-
 }  // namespace
 
 template <typename ScanFn>
