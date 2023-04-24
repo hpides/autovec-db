@@ -110,3 +110,4 @@ add_benchmark(hash_bucket)
 add_benchmark(hashing)
 
 target_compile_options(hashing PRIVATE ${USE_512_VECTORS_FLAGS})
+target_compile_options(compressed_scan PRIVATE ${USE_512_VECTORS_FLAGS})

@@ -260,7 +260,15 @@ struct vector_scan {
   alignas(VECTOR_WIDTH_BYTES) static constexpr std::array LANE_SHIFT_VALUES =
       shift_values_for_lanes<vector_width_bits>();
 
-  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+  static std::array<ByteVecT, 4> shuffle_masks_hidden_from_compiler;
+
+  vector_scan() {
+    for(int i = 0; i < 4; ++i) {
+      shuffle_masks_hidden_from_compiler[i] = simd::load<ByteVecT>(SHUFFLE_TO_LANES[i].data());
+    }
+  }
+
+  void operator()(const uint64_t* __restrict input, uint32_t* output, size_t num_tuples) {
     static_assert(std::endian::native == std::endian::little,
                   "big-endian systems need extra logic to handle uint64_t boundaries correctly.");
 
@@ -294,15 +302,15 @@ struct vector_scan {
         auto input_vec = simd::load_unaligned<ByteVecT>(read_ptr);
         read_ptr += 3 * (OUTPUT_ELEMENTS_PER_VECTOR)*9 / 8;
 
-#if CLANG_COMPILER
-        // We want the shuffle mask to be known at compile-time on NEON, so we force unroll here.
-        // If we don't force the unroll, it does not detect this. For 512 bits, the unrolled loop is too big, so the
-        // vectorizer fails, and we get horrible code --> only unroll for smaller vectors.
-        constexpr int UNROLL_COUNT = vector_width_bits >= 512 ? 1 : 3;
-#pragma unroll(UNROLL_COUNT)
-#endif
+#pragma unroll(3)
         for (size_t i = 0; i < 3; ++i) {
-          auto shuffle_mask = simd::load<ByteVecT>(SHUFFLE_TO_LANES[i].data());
+          ByteVecT shuffle_mask;
+          if constexpr(vector_width_bits == 512) {
+            shuffle_mask = shuffle_masks_hidden_from_compiler[i];
+          } else {
+            shuffle_mask = simd::load<ByteVecT>(SHUFFLE_TO_LANES[i].data());
+          }
+
           Uint32VecT lanes = simd::shuffle_vector(input_vec, shuffle_mask);
 
           auto shift_values = simd::load<Uint32VecT>(LANE_SHIFT_VALUES.data());
@@ -327,6 +335,10 @@ struct vector_scan {
 BENCHMARK(BM_scanning<vector_scan<128>>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan<256>>)->BM_ARGS;
 BENCHMARK(BM_scanning<vector_scan<512>>)->BM_ARGS;
+
+template<> std::array<vector_scan<128>::ByteVecT, 4> vector_scan<128>::shuffle_masks_hidden_from_compiler {};
+template<> std::array<vector_scan<256>::ByteVecT, 4> vector_scan<256>::shuffle_masks_hidden_from_compiler {};
+template<> std::array<vector_scan<512>::ByteVecT, 4> vector_scan<512>::shuffle_masks_hidden_from_compiler {};
 
 ///////////////////////
 ///      NEON       ///
