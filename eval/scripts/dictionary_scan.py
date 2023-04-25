@@ -35,9 +35,9 @@ def plot_dictionary_scan(ax, data):
 
     y_pos = 1 + (max_diff / 20)
     if IS_PAPER_PLOT():
-        ax.text(0, y_pos, f"\\ms{{{naive_perf / 1000:.1f}}}", size=10, **NAIVE_PERF_TEXT)
+        ax.text(0, y_pos, f"\\us{{{int(naive_perf)}}}", size=10, **NAIVE_PERF_TEXT)
     else:
-        ax.text(0, y_pos, f"{naive_perf / 1000:.1f}ms", **NAIVE_PERF_TEXT)
+        ax.text(0, y_pos, f"{int(naive_perf)}us", **NAIVE_PERF_TEXT)
 
     ax.tick_params(axis='x', which=u'both',length=0)
     ax.set_xticks(range(len(data['name'])))
@@ -68,7 +68,6 @@ if __name__ == '__main__':
         idx = no_pred & no_loop & only_512_16bit_shuffle & no_avx2 & no_compress_plus_store
         return df[idx]
 
-
     fig, (x86_ax, m1_ax) = plt.subplots(1, 2, figsize=DOUBLE_FIG_SIZE, gridspec_kw={'width_ratios': [1.5, 1]})
 
     plot_dictionary_scan(x86_ax, filter_results(x86_results))
@@ -79,8 +78,8 @@ if __name__ == '__main__':
 
     x86_ax.set_ylabel("Speedup")
 
-    x86_ax.set_ylim(0, 25)
-    x86_ax.set_yticks(range(0, 26, 5))
+    x86_ax.set_ylim(0, 37)
+    x86_ax.set_yticks(range(0, 37, 10))
 
     m1_ax.set_ylim(0, 16)
     m1_ax.set_yticks(range(0, 16, 5))

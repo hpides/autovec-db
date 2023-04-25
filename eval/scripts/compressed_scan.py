@@ -17,9 +17,9 @@ def plot_compressed_scan(ax, data):
 
     y_pos = 1 + (max_diff / 20)
     if IS_PAPER_PLOT():
-        ax.text(0, y_pos, f"\\ms{{{naive_perf / 1000:.1f}}}", size=10, **NAIVE_PERF_TEXT)
+        ax.text(0, y_pos, f"\\us{{{int(naive_perf)}}}", size=10, **NAIVE_PERF_TEXT)
     else:
-        ax.text(0, y_pos, f"{naive_perf / 1000:.1f}ms", **NAIVE_PERF_TEXT)
+        ax.text(0, y_pos, f"{int(naive_perf)}us", **NAIVE_PERF_TEXT)
 
     ax.tick_params(axis='x', which=u'both',length=0)
     ax.set_xticks(range(len(data)))
@@ -38,7 +38,11 @@ if __name__ == '__main__':
 
     fig, (x86_ax, m1_ax) = plt.subplots(1, 2, figsize=DOUBLE_FIG_SIZE)
 
-    plot_compressed_scan(x86_ax, x86_results)
+    def filter_results(df):
+        no_avx512 = ~(df['name'] == "avx512vbmi")
+        return df[no_avx512]
+
+    plot_compressed_scan(x86_ax, filter_results(x86_results))
     plot_compressed_scan(m1_ax, m1_results)
 
     x86_ax.set_title(f"a) x86 {x86_arch.capitalize()}")
@@ -46,11 +50,11 @@ if __name__ == '__main__':
 
     x86_ax.set_ylabel("Speedup")
 
-    x86_ax.set_ylim(0, 9)
-    x86_ax.set_yticks(range(0, 9, 2))
+    x86_ax.set_ylim(0, 17)
+    x86_ax.set_yticks(range(0, 17, 5))
 
-    m1_ax.set_ylim(0, 16)
-    m1_ax.set_yticks(range(0, 16, 5))
+    m1_ax.set_ylim(0, 17)
+    m1_ax.set_yticks(range(0, 17, 5))
 
 
     HATCH_WIDTH()
