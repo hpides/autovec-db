@@ -18,7 +18,9 @@
 // For autovec, processing 32-element blocks seems reasonable.
 static constexpr uint64_t NUM_BASE_TUPLES = std::lcm(12, std::lcm(56, 32));
 
-static constexpr uint64_t NUM_TARGET_TUPLES = 1'000'000;
+// We initially had 1M tuples == 1,125MB input data, targetting L3 Cache.
+// However, on cascadelake, L3 bandwidth was bottlenecking, so we went down to ~112kB, targetting L2.
+static constexpr uint64_t NUM_TARGET_TUPLES = 100'000;
 static constexpr uint64_t SCALE_FACTOR = NUM_TARGET_TUPLES / NUM_BASE_TUPLES;
 
 static constexpr uint64_t NUM_TUPLES = NUM_BASE_TUPLES * SCALE_FACTOR;
@@ -58,31 +60,6 @@ CompressedColumn compress_input(const std::vector<uint32_t>& input) {
   }
 
   return compressed_data;
-}
-
-[[maybe_unused]] void print_bytes_right_to_left(void* data, size_t num_bytes, std::ostream& os) {
-  auto* bytes = reinterpret_cast<uint8_t*>(data);
-  for (size_t offset = num_bytes; offset > 0; --offset) {
-    os << std::hex << std::setfill('0') << std::setw(2) << std::bitset<8>(bytes[offset - 1]).to_ulong() << ' ';
-  }
-  os << std::endl;
-}
-
-[[maybe_unused]] void print_bits_right_to_left(void* data, size_t num_bytes, std::ostream& os) {
-  auto* bytes = reinterpret_cast<uint8_t*>(data);
-  for (size_t offset = num_bytes; offset > 0; --offset) {
-    os << std::bitset<8>(bytes[offset - 1]) << ' ';
-  }
-  os << std::endl;
-}
-
-template <typename SimdLane>
-void print_lane(SimdLane* lane, bool as_bits = true, std::ostream& os = std::cout) {
-  constexpr size_t NUM_BYTES = sizeof(SimdLane);
-  if (as_bits) {
-    return print_bits_right_to_left(lane, NUM_BYTES, os);
-  }
-  return print_bytes_right_to_left(lane, NUM_BYTES, os);
 }
 
 }  // namespace
@@ -235,6 +212,7 @@ static constexpr auto shuffle_table_input_elements_to_lanes() {
   // with leading / trailing garbage bits. 4 shuffles are required since we expand 9-bit numbers to 32-bit numbers, so a
   // vector register can only contain 9/32 = 0.28 of the input numbers, so we have to shuffle 4 times to process all
   // input numbers.
+  // Our implementations below typically discard the last half-full vector
   std::array<std::array<uint8_t, vector_width_bits / 8>, 4> result{};
 
   constexpr size_t INPUT_ELEMENTS_PER_VECTOR = vector_width_bits / 9;
@@ -248,7 +226,8 @@ static constexpr auto shuffle_table_input_elements_to_lanes() {
     const size_t output_element = input_element % OUTPUT_ELEMENTS_PER_VECTOR;
 
     unsigned char* write_ptr = result[output_array].data() + 4 * output_element;
-    std::iota(write_ptr, write_ptr + 4, static_cast<uint8_t>(bytes_before));
+    const int input_bytes_left = vector_width_bits / 8 - bytes_before;
+    std::iota(write_ptr, write_ptr + std::min(4, input_bytes_left), static_cast<uint8_t>(bytes_before));
   }
 
   return result;
@@ -588,6 +567,40 @@ struct x86_512_scan {
 };
 
 BENCHMARK(BM_scanning<x86_512_scan>)->BM_ARGS;
+
+#if defined(__AVX512VBMI__)
+struct x86_512vbmi_scan {
+  static constexpr size_t OUTPUT_ELEMENTS_PER_VECTOR = 512 / 32;
+  static constexpr size_t OUTPUT_ELEMENTS_PER_ITERATION = 3ul * OUTPUT_ELEMENTS_PER_VECTOR;
+
+  alignas(64) static constexpr std::array SHUFFLE_TO_LANES = shuffle_table_input_elements_to_lanes<512>();
+  alignas(64) static constexpr std::array LANE_SHIFT_VALUES = shift_values_for_lanes<512>();
+
+  void operator()(const uint64_t* __restrict input, uint32_t* __restrict output, size_t num_tuples) {
+    const __m512i shift_mask = _mm512_load_epi32(LANE_SHIFT_VALUES.data());
+    const __m512i and_mask = _mm512_set1_epi32((1u << COMPRESS_BITS) - 1);
+
+    const size_t num_iterations = num_tuples / OUTPUT_ELEMENTS_PER_ITERATION;
+    const auto* read_ptr = reinterpret_cast<const std::byte*>(input);
+
+    for (size_t iteration = 0; iteration < num_iterations; ++iteration) {
+      const __m512i input_vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(read_ptr));
+      read_ptr += OUTPUT_ELEMENTS_PER_ITERATION * 9 / 8;
+      for (int i = 0; i < 3; ++i) {
+        __m512i lanes =
+            _mm512_permutexvar_epi8(*reinterpret_cast<const __m512i*>(SHUFFLE_TO_LANES[i].data()), input_vec);
+        lanes = _mm512_srlv_epi32(lanes, shift_mask);
+        lanes = _mm512_and_epi32(lanes, and_mask);
+        _mm512_store_si512(reinterpret_cast<__m512i*>(output), lanes);
+        output += OUTPUT_ELEMENTS_PER_VECTOR;
+      }
+    }
+  }
+};
+
+BENCHMARK(BM_scanning<x86_512vbmi_scan>)->BM_ARGS;
+#endif
+
 #endif
 
 BENCHMARK_MAIN();
