@@ -10,7 +10,7 @@ def get_table(systems):
         data = get_results(f"{result_path}/{system}", f"{benchmark}.csv")
         data = clean_up_results(data)
         naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
-        print(f"Naive duration [{system}]: {naive_perf / 1000:.1f} ms")
+        print(f"Naive duration [{system}]: {naive_perf:.1f} us")
         data['runtime'] = naive_perf / data['runtime']
 
         if benchmark == "compressed_scan":
