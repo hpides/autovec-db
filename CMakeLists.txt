@@ -108,5 +108,6 @@ add_benchmark(compressed_scan)
 add_benchmark(dictionary_scan)
 add_benchmark(hash_bucket)
 add_benchmark(hashing)
+add_benchmark(llvm_bitmask)
 
 target_compile_options(hashing PRIVATE ${USE_512_VECTORS_FLAGS})
