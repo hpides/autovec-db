@@ -242,10 +242,10 @@ struct vector_512_scan_shuffle {
   using ShuffleMask16Elements = simd::GccVec<ShuffleVecElementT, 16 * sizeof(ShuffleVecElementT)>::T;
   static constexpr ShuffleVecElementT SDC = -1;  // SDC == SHUFFLE_DONT_CARE
 
-  ShuffleMask16Elements get_shuffle_mask_from_16bit(uint16_t mask) {
-    alignas(64) constexpr auto MATCHES_TO_SHUFFLE_MASK_16_BIT =
-        lookup_table_for_compressed_offsets_by_comparison_result<16, ShuffleVecElementT, SDC>();
+  alignas(64) static constexpr auto MATCHES_TO_SHUFFLE_MASK_16_BIT =
+      lookup_table_for_compressed_offsets_by_comparison_result<16, ShuffleVecElementT, SDC>();
 
+  ShuffleMask16Elements get_shuffle_mask_from_16bit(uint16_t mask) {
     return simd::load<ShuffleMask16Elements>(MATCHES_TO_SHUFFLE_MASK_16_BIT[mask].data());
   }
 
