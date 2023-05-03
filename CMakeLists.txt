@@ -59,7 +59,7 @@ include(FetchContent)
 FetchContent_Declare(
     google_benchmark
     GIT_REPOSITORY https://github.com/google/benchmark.git
-    GIT_TAG v1.6.1
+    GIT_TAG v1.7.1
 )
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing google benchmark's tests" FORCE)
 FetchContent_MakeAvailable(google_benchmark)
