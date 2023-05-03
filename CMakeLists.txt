@@ -66,10 +66,14 @@ FetchContent_MakeAvailable(google_benchmark)
 # Mark google benchmark headers as system headers to avoid applying our stricter compile options to them.
 get_property(_google_benchmark_include_dirs TARGET benchmark PROPERTY INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(benchmark SYSTEM INTERFACE ${_google_benchmark_include_dirs})
+target_compile_options(benchmark PRIVATE "-Wno-error")
 
 
 ##### COMPILER WARNINGS #####
 list(APPEND WARNING_OPTIONS "-Wall" "-Wextra" "-Werror" "-Wpedantic" "-Wextra-semi" "-Wnon-virtual-dtor" "-Wunused" "-Wzero-as-null-pointer-constant")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  list(APPEND WARNING_OPTIONS "-Wno-maybe-uninitialized")
+endif()
 
 # disabled for clang because it triggers too often: https://github.com/llvm/llvm-project/issues/55309
 # disabled for GCC because it triggers for 512bit GCC-vector helper functions.
