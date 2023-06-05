@@ -510,7 +510,7 @@ struct x86_pdep_scan {
       uint64_t upper_byte = 0;
       std::memcpy(&upper_byte, input_bytes + read_start_byte + 8, 1);
 
-      int64_t result = _pdep_u64(lower_8_bytes >> (0 * 9), PDEP_STORE_MASK);
+      uint64_t result = _pdep_u64(lower_8_bytes >> (0 * 9), PDEP_STORE_MASK);
       std::memcpy(output + tuple_index, &result, sizeof(result));
 
       result = _pdep_u64(lower_8_bytes >> (2 * 9), PDEP_STORE_MASK);
