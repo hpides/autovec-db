@@ -522,7 +522,6 @@ struct x86_pdep_scan {
       // 6*9=54, so we have 64-54=10 bits left in lower_8_bytes, and we need to "append" the 8 bits of the next byte
       result = _pdep_u64(lower_8_bytes >> (6 * 9) | (upper_byte << (64 - 6 * 9)), PDEP_STORE_MASK);
       std::memcpy(output + tuple_index + 6, &result, sizeof(result));
-
     }
   }
 };
