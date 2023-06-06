@@ -1,7 +1,7 @@
-BUILD_DIR=./build-clang-release
+BUILD_DIR=./build-gcc-release
 BENCH_ARGS="--benchmark_format=csv --benchmark_repetitions=10 --benchmark_report_aggregates_only=true"
 
-COMPILER="${AUTOVEC_DB_COMPILER:-clang++}"
+COMPILER="g++-13"
 
 mkdir -p ${BUILD_DIR}
 CXX=${COMPILER} cmake . -B ${BUILD_DIR} -DCMAKE_BUILD_TYPE=Release
