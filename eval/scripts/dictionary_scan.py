@@ -4,6 +4,25 @@ import sys
 import os
 from common import *
 
+def filter_results(df):
+    no_pred = ~df['name'].str.contains("predication")
+    no_loop = ~df['name'].str.contains("loop")
+    no_compress_plus_store = ~df['name'].str.contains("-PLUS-STORE")
+    only_512_16bit_shuffle = ~df['name'].str.contains("8-BIT") & ~df['name'].str.contains("4-BIT")
+    no_avx2 = ~df['name'].str.contains("avx2")
+    idx = no_pred & no_loop & only_512_16bit_shuffle & no_avx2 & no_compress_plus_store
+    return df[idx]
+
+
+def clean_up_names(data):
+    # Clean up names for labels
+    data['name'] = data['name'].str.replace(r"(vec)-(\d+)-.*Strategy::(.*)", r"\1-\2-\3", regex=True)
+    data['name'] = data['name'].str.replace(r"(avx512)-(\d+)-.*Strategy::(.*)", r"\1-\2-\3", regex=True)
+    data['name'] = data['name'].str.replace(r"SHUFFLE-MASK-\d+-BIT", "shuffle", regex=True)
+
+    data['name'] = data['name'].str.replace(r"(avx512)-(\d+)-COMPRESSSTORE", r"vpcompressd-\2", regex=True)
+    # data['name'] = data['name'].str.replace(r"-COMPRESSSTORE", "-compress")
+
 
 def plot_dictionary_scan(ax, data):
     naive_perf = data[data['name'].str.contains('naive')]['runtime'].values[0]
@@ -26,12 +45,7 @@ def plot_dictionary_scan(ax, data):
         ax.bar(variant, speedup, **bar_style)
 
     # Clean up names for labels
-    data['name'] = data['name'].str.replace(r"(vec)-(\d+)-.*Strategy::(.*)", r"\1-\2-\3", regex=True)
-    data['name'] = data['name'].str.replace(r"(avx512)-(\d+)-.*Strategy::(.*)", r"\1-\2-\3", regex=True)
-    data['name'] = data['name'].str.replace(r"SHUFFLE-MASK-\d+-BIT", "shuffle", regex=True)
-
-    data['name'] = data['name'].str.replace(r"(avx512)-(\d+)-COMPRESSSTORE", r"vpcompressd-\2", regex=True)
-    # data['name'] = data['name'].str.replace(r"-COMPRESSSTORE", "-compress")
+    clean_up_names(data)
 
     y_pos = 1 + (max_diff / 20)
     if IS_PAPER_PLOT():
@@ -58,15 +72,6 @@ if __name__ == '__main__':
     m1_unpatched_results = clean_up_results(m1_unpatched_results, "scan")
     m1_results['patched'] = m1_results['runtime']
     m1_results['runtime'] = m1_unpatched_results['runtime']
-
-    def filter_results(df):
-        no_pred = ~df['name'].str.contains("predication")
-        no_loop = ~df['name'].str.contains("loop")
-        no_compress_plus_store = ~df['name'].str.contains("-PLUS-STORE")
-        only_512_16bit_shuffle = ~df['name'].str.contains("8-BIT") & ~df['name'].str.contains("4-BIT")
-        no_avx2 = ~df['name'].str.contains("avx2")
-        idx = no_pred & no_loop & only_512_16bit_shuffle & no_avx2 & no_compress_plus_store
-        return df[idx]
 
     fig, (x86_ax, m1_ax) = plt.subplots(1, 2, figsize=DOUBLE_FIG_SIZE, gridspec_kw={'width_ratios': [1.5, 1]})
 
