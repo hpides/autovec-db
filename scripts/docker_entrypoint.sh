@@ -4,15 +4,19 @@ LLVM_COMPILER="${AUTOVEC_DB_COMPILER:-clang++}"
 GCC_COMPILER="g++-12"
 
 run_benchmarks () {
-  COMPILER=$1
-  NAME=$2
+  NAME=$1
+  COMPILER=$2
   BUILD_DIR="./build-${NAME}-release"
+  RESULT_DIR="./results-${NAME}"
+
   mkdir -p ${BUILD_DIR}
+  mkdir -p ${RESULT_DIR}
+
   CXX=${COMPILER} cmake . -B ${BUILD_DIR} -DCMAKE_BUILD_TYPE=Release
   cmake --build ${BUILD_DIR} -j
 
   for BENCHMARK in hashing hash_bucket compressed_scan dictionary_scan; do
-    ${BUILD_DIR}/${BENCHMARK} ${BENCH_ARGS} | tee ${BENCHMARK}.csv
+    ${BUILD_DIR}/${BENCHMARK} ${BENCH_ARGS} | tee ${RESULT_DIR}/${BENCHMARK}.csv
   done
 }
 
