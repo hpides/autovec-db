@@ -153,11 +153,21 @@ struct vector_128_scan_shuffle {
           lookup_table_for_compressed_offsets_by_comparison_result<4, uint8_t, static_cast<uint8_t>(-1)>());
 
 #else
+
+  // With clang we can save some space (and, surprisingly, instructions) by using 8-bit numbers in the lookup tables
+  // With GCC, 32-bit are faster
+#if CLANG_COMPILER
+  using ShuffleMaskElementT = uint8_t;
+#else
+  using ShuffleMaskElementT = uint32_t;
+#endif
+
   using ShuffleVec = simd::GccVec<uint32_t, 16>::T;
 
-  using ShuffleMask = simd::GccVec<uint32_t, 16>::T;
-  alignas(64) static constexpr std::array<std::array<uint32_t, 4>, 16> MATCHES_TO_SHUFFLE_MASK =
-      lookup_table_for_compressed_offsets_by_comparison_result<4, uint32_t, static_cast<uint32_t>(-1)>();
+  using ShuffleMask = simd::GccVec<ShuffleMaskElementT, 4 * sizeof(ShuffleMaskElementT)>::T;
+  alignas(64) static constexpr std::array<std::array<ShuffleMaskElementT, 4>, 16> MATCHES_TO_SHUFFLE_MASK =
+      lookup_table_for_compressed_offsets_by_comparison_result<4, ShuffleMaskElementT,
+                                                               static_cast<ShuffleMaskElementT>(-1)>();
 #endif
 
   static_assert(NUM_MATCHES_PER_VECTOR == 4);
