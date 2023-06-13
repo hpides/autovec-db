@@ -153,12 +153,21 @@ struct vector_128_scan_shuffle {
           lookup_table_for_compressed_offsets_by_comparison_result<4, uint8_t, static_cast<uint8_t>(-1)>());
 
 #else
+
+  // With clang we can save some space (and, surprisingly, instructions) by using 8-bit numbers in the lookup tables
+  // With GCC, 32-bit are faster
+#if CLANG_COMPILER
+  using ShuffleMaskElementT = uint8_t;
+#else
+  using ShuffleMaskElementT = uint32_t;
+#endif
+
   using ShuffleVec = simd::GccVec<uint32_t, 16>::T;
 
-  using ShuffleMask = simd::GccVec<uint8_t, 4>::T;
-  // The entire lookup table fits into a single cache line (4B x 16 = 64B).
-  alignas(64) static constexpr std::array<std::array<uint8_t, 4>, 16> MATCHES_TO_SHUFFLE_MASK =
-      lookup_table_for_compressed_offsets_by_comparison_result<4, uint8_t, static_cast<uint8_t>(-1)>();
+  using ShuffleMask = simd::GccVec<ShuffleMaskElementT, 4 * sizeof(ShuffleMaskElementT)>::T;
+  alignas(64) static constexpr std::array<std::array<ShuffleMaskElementT, 4>, 16> MATCHES_TO_SHUFFLE_MASK =
+      lookup_table_for_compressed_offsets_by_comparison_result<4, ShuffleMaskElementT,
+                                                               static_cast<ShuffleMaskElementT>(-1)>();
 #endif
 
   static_assert(NUM_MATCHES_PER_VECTOR == 4);
@@ -226,7 +235,8 @@ struct vector_scan_add {
 };
 
 using vector_128_scan_add = vector_scan_add<16, uint32_t>;
-using vector_512_scan_add = vector_scan_add<64, uint8_t>;
+// using uint8_t as RowOffsetT didn't give a measurable performance boost on icelake, but it decreases GCC performance
+using vector_512_scan_add = vector_scan_add<64, uint32_t>;
 
 enum class Vector512ScanStrategy { SHUFFLE_MASK_16_BIT, SHUFFLE_MASK_8_BIT, SHUFFLE_MASK_4_BIT };
 
@@ -237,15 +247,16 @@ struct vector_512_scan_shuffle {
 
   static constexpr size_t NUM_MATCHES_PER_VECTOR = sizeof(DictVec) / sizeof(DictEntry);
 
-  using ShuffleVecElementT = uint8_t;
+  // uint8_t and uint32_t perform equivalently on clang, but 8 is worse on GCC
+  using ShuffleVecElementT = uint32_t;
 
   using ShuffleMask16Elements = simd::GccVec<ShuffleVecElementT, 16 * sizeof(ShuffleVecElementT)>::T;
   static constexpr ShuffleVecElementT SDC = -1;  // SDC == SHUFFLE_DONT_CARE
 
-  ShuffleMask16Elements get_shuffle_mask_from_16bit(uint16_t mask) {
-    alignas(64) constexpr auto MATCHES_TO_SHUFFLE_MASK_16_BIT =
-        lookup_table_for_compressed_offsets_by_comparison_result<16, ShuffleVecElementT, SDC>();
+  alignas(64) static constexpr auto MATCHES_TO_SHUFFLE_MASK_16_BIT =
+      lookup_table_for_compressed_offsets_by_comparison_result<16, ShuffleVecElementT, SDC>();
 
+  ShuffleMask16Elements get_shuffle_mask_from_16bit(uint16_t mask) {
     return simd::load<ShuffleMask16Elements>(MATCHES_TO_SHUFFLE_MASK_16_BIT[mask].data());
   }
 
