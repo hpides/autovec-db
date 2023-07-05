@@ -1,4 +1,4 @@
-Microbenchmarks for our paper "Writing Less Platform-Specific SIMD Code in Databases"
+Microbenchmarks for our paper "Evaluating SIMD Compiler-Intrinsics for Database Systems"
 
 This file focuses on the microbenchmarks. For reproducing the Velox measurements, we have [a separate README file](eval/results/velox/README.md).
 
